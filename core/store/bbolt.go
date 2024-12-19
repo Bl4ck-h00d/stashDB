@@ -13,10 +13,11 @@ type BoltStore struct {
 }
 
 func NewBoltStore(path string) (*BoltStore, error) {
-	db, err := bolt.Open(path, 0600, nil)
+	db, err := bolt.Open(path, 0666, nil)
 	if err != nil {
-		log.Fatalf("error while opening bolt store: %v", err)
+		return nil, fmt.Errorf("error while opening bolt store: %v", err)
 	}
+	log.Println("successfully instantiated bolt store")
 	return &BoltStore{db: db}, nil
 }
 

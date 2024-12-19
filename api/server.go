@@ -1,26 +1,35 @@
 package api
 
-import "github.com/gorilla/mux"
+import (
+	"log"
+	"net/http"
+
+	"github.com/Bl4ck-h00d/stashdb/core/store"
+	"github.com/gorilla/mux"
+)
 
 type Server struct {
 	address string
-	db      string
+	dbPath  string
 }
 
-func NewAPIServer(address, db string) (*Server, error) {
-	return &Server{address: address, db: db}, nil
+func NewAPIServer(address, dbPath string) *Server {
+	return &Server{address: address, dbPath: dbPath}
 }
 
 func (s *Server) Start() error {
-	_ = mux.NewRouter()
-	// subrouter := router.PathPrefix("/api/v1").Subrouter()
+	router := mux.NewRouter()
+	subrouter := router.PathPrefix("/api/v1").Subrouter()
 
-	// Routes
-
-
+	dataStore, _ := store.NewStore("bolt", s.dbPath)
 
 	// Handlers
-	
+	handlers := NewHandler(dataStore)
 
-	return nil
+	// Register routes
+	handlers.RegisterRoutes(subrouter)
+
+	// Start server
+	log.Println("Listening on ", s.address)
+	return http.ListenAndServe(s.address, router)
 }

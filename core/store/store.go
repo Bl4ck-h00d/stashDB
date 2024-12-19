@@ -1,10 +1,18 @@
 package store
 
+import (
+	"fmt"
 
-type Store interface {
-	CreateBucket(name string) error
-	Set(key string, value []byte) error
-	Get(key string) ([]byte, error)
-	Delete(key string) error
-	Close() error	
+	"github.com/Bl4ck-h00d/stashdb/types"
+)
+
+// Factory
+func NewStore(dbType, dbPath string) (types.Store, error) {
+	switch dbType {
+	case "bolt":
+		return NewBoltStore(dbPath)
+
+	default:
+		return nil, fmt.Errorf("unsupported database type: %v", dbType)
+	}
 }
