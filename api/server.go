@@ -21,7 +21,10 @@ func (s *Server) Start() error {
 	router := mux.NewRouter()
 	subrouter := router.PathPrefix("/api/v1").Subrouter()
 
-	dataStore, _ := store.NewStore("bolt", s.dbPath)
+	dataStore, err := store.NewStore("bolt", s.dbPath)
+	if err != nil {
+		log.Fatalf("error starting the store: %v", err)
+	}
 
 	// Handlers
 	handlers := NewHandler(dataStore)
