@@ -65,7 +65,9 @@ func (b *BoltStore) Get(bucket, key string) []byte {
 			return fmt.Errorf("bucket [%s] not found", bucket)
 		}
 		value = bkt.Get([]byte(key))
-
+		if value == nil {
+			return fmt.Errorf("key [%s/%s] not found", bucket, key)
+		}
 		copiedValue := make([]byte, len(value))
 		copy(copiedValue, value)
 		value = copiedValue

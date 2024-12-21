@@ -22,7 +22,7 @@ func (h *Handlers) RegisterRoutes(router *mux.Router) {
 	router.HandleFunc("/create-bucket", h.handleCreateBucket).Methods("POST")
 	router.HandleFunc("/set", h.handleSet).Methods("POST")
 	router.HandleFunc("/get", h.handleGet).Methods("GET")
-	router.HandleFunc("/delete", nil).Methods("DELETE")
+	router.HandleFunc("/delete", h.handleDelete).Methods("DELETE")
 }
 
 // POST /create-bucket
@@ -84,4 +84,26 @@ func (h *Handlers) handleGet(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("get: %v:%v", key, string(value[:]))
 	utils.WriteJSON(w, http.StatusOK, string(value[:]))
+}
+
+// DELETE /delete?key=_key&bucket=_bucket
+func (h *Handlers) handleDelete(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+
+	key := query.Get("key")
+	bucket := query.Get("bucket")
+
+	if key == "" || bucket == "" {
+		log.Printf("[%d] delete operation failed: %v,%v", http.StatusBadRequest, key, bucket)
+		utils.WriteError(w, http.StatusBadRequest, errors.New("key and bucket are required"))
+		return
+	}
+
+	if err := h.store.Delete(bucket, key); err != nil {
+		log.Printf("[%d] delete operation failed: %v", http.StatusInternalServerError, err)
+		utils.WriteError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	utils.WriteJSON(w, http.StatusOK, nil)
 }
