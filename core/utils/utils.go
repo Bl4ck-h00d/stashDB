@@ -3,6 +3,7 @@ package utils
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 )
 
@@ -22,4 +23,12 @@ func WriteJSON(w http.ResponseWriter, status int, payload any) error {
 
 func WriteError(w http.ResponseWriter, status int, err error) error {
 	return WriteJSON(w, status, map[string]string{"err": err.Error()})
+}
+
+func Log(action string, status int, err error) {
+	if err != nil {
+		log.Printf("[%d] %s: %v", status, action, err)
+	} else {
+		log.Printf("[%d] %s", status, action)
+	}
 }

@@ -1,9 +1,12 @@
 package store
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
+	"time"
 
+	"github.com/Bl4ck-h00d/stashdb/types"
 	"go.etcd.io/bbolt"
 	bolt "go.etcd.io/bbolt"
 )
@@ -42,7 +45,13 @@ func (b *BoltStore) Set(bucket, key string, value []byte) error {
 		if err != nil {
 			return err
 		}
-		err = bkt.Put([]byte(key), value)
+
+		valueWithTimestamp := types.ValueWithTimestamp{Value: value, Timestamp: time.Now().Unix()}
+		marshalledData, err := json.Marshal(valueWithTimestamp)
+		if err != nil {
+			return fmt.Errorf("error while marshalling value: %v", err)
+		}
+		err = bkt.Put([]byte(key), marshalledData)
 		return err
 	})
 

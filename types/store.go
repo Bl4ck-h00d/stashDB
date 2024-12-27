@@ -7,3 +7,14 @@ type Store interface {
 	Delete(bucket, key string) error
 	Close() error
 }
+
+type ValueWithTimestamp struct {
+	Value     []byte
+	Timestamp int64
+}
+
+type ValueWithTTL struct {
+	Value      []byte
+	Timestamp  int64
+	Expiration int64
+}

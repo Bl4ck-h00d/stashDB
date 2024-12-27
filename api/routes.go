@@ -30,17 +30,18 @@ func (h *Handlers) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
 	var payload types.CreateBucketRequestPayload
 
 	if err := utils.ParseJSON(r, &payload); err != nil {
-		log.Printf("[%d] bucket creation failed: %v", http.StatusBadRequest, err)
+		utils.Log("bucket creation failed", http.StatusBadRequest, err)
 		utils.WriteError(w, http.StatusBadRequest, err)
 		return
 	}
 	err := h.store.CreateBucket(payload.Name)
 	if err != nil {
-		log.Printf("[%d] bucket creation failed: %v", http.StatusInternalServerError, err)
+		utils.Log("bucket creation failed", http.StatusInternalServerError, err)
 		utils.WriteError(w, http.StatusInternalServerError, err)
 		return
 	}
-	log.Printf("created bucket: %+v", payload)
+
+	utils.Log("bucket created", http.StatusCreated, nil)
 	utils.WriteJSON(w, http.StatusCreated, nil)
 }
 
@@ -49,17 +50,18 @@ func (h *Handlers) handleSet(w http.ResponseWriter, r *http.Request) {
 	var payload types.SetRequestPayload
 
 	if err := utils.ParseJSON(r, &payload); err != nil {
-		log.Printf("[%d] set operation failed: %v", http.StatusBadRequest, err)
+		utils.Log("SET operation failed", http.StatusBadRequest, err)
 		utils.WriteError(w, http.StatusBadRequest, err)
 		return
 	}
 	err := h.store.Set(payload.Bucket, payload.Key, []byte(payload.Value))
 	if err != nil {
-		log.Printf("[%d] set operation failed: %v", http.StatusInternalServerError, err)
+		utils.Log("SET operation failed", http.StatusInternalServerError, err)
 		utils.WriteError(w, http.StatusInternalServerError, err)
 		return
 	}
 	log.Printf("set: %+v", payload)
+	utils.Log("SET succeeded", http.StatusOK, nil)
 	utils.WriteJSON(w, http.StatusCreated, nil)
 }
 
@@ -71,18 +73,19 @@ func (h *Handlers) handleGet(w http.ResponseWriter, r *http.Request) {
 	bucket := query.Get("bucket")
 
 	if key == "" || bucket == "" {
-		log.Printf("[%d] get operation failed: %v,%v", http.StatusBadRequest, key, bucket)
+		utils.Log("GET operation failed", http.StatusBadRequest, errors.New("empty key or bucket"))
 		utils.WriteError(w, http.StatusBadRequest, errors.New("key and bucket are required"))
 		return
 	}
 
 	value := h.store.Get(bucket, key)
 	if value == nil {
-		log.Printf("[%d] get operation failed: %v,%v", http.StatusNotFound, key, bucket)
+		utils.Log("GET operation failed", http.StatusNotFound, errors.New("key not found"))
 		utils.WriteError(w, http.StatusNotFound, errors.New("key not found"))
 		return
 	}
-	log.Printf("get: %v:%v", key, string(value[:]))
+
+	utils.Log("GET succeeded", http.StatusOK, nil)
 	utils.WriteJSON(w, http.StatusOK, string(value[:]))
 }
 
@@ -94,13 +97,13 @@ func (h *Handlers) handleDelete(w http.ResponseWriter, r *http.Request) {
 	bucket := query.Get("bucket")
 
 	if key == "" || bucket == "" {
-		log.Printf("[%d] delete operation failed: %v,%v", http.StatusBadRequest, key, bucket)
+		utils.Log("DELETE operation failed", http.StatusBadRequest, errors.New("empty key or bucket"))
 		utils.WriteError(w, http.StatusBadRequest, errors.New("key and bucket are required"))
 		return
 	}
 
 	if err := h.store.Delete(bucket, key); err != nil {
-		log.Printf("[%d] delete operation failed: %v", http.StatusInternalServerError, err)
+		utils.Log("DELETE operation failed", http.StatusInternalServerError, err)
 		utils.WriteError(w, http.StatusInternalServerError, err)
 		return
 	}
