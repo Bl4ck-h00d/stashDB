@@ -1,0 +1,5 @@
+id: "node1"
+grpc_port: ":9000"
+http_port: ":8080"
+data_path: "data/stash.db"
+

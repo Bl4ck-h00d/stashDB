@@ -5,6 +5,8 @@ type Store interface {
 	Set(bucket, key string, value []byte) error
 	Get(bucket, key string) []byte
 	Delete(bucket, key string) error
+	GetAllBuckets() ([]string, error)
+	GetAllKeys(bucket string, limit int64) (map[string][]byte, error)
 	Close() error
 }
 
