@@ -3,6 +3,8 @@ syntax = "proto3";
 
 import "google/api/annotations.proto";
 import "google/protobuf/empty.proto";
+import "google/protobuf/any.proto";
+
 
 
 package stashDB;
@@ -49,6 +51,41 @@ service StashDBService {
             get: "/v1/data/{bucket=*}"
         };
     }
+
+    rpc HeartbeatCheck (google.protobuf.Empty) returns (HeartbeatCheckResponse) {
+        option (google.api.http) = {
+            get: "/v1/heartbeat"
+        };
+    }
+
+    rpc Join(JoinRequest) returns (google.protobuf.Empty) {
+        option (google.api.http) = {
+            put: "/v1/cluster/{id}"
+            body: "*"
+        };
+    }
+
+    rpc Leave(LeaveRequest) returns (google.protobuf.Empty) {
+        option (google.api.http) = {
+            delete: "/v1/cluster/{id}"
+        };
+    }
+
+    rpc Node(google.protobuf.Empty) returns (NodeResponse) {
+        option (google.api.http)={
+            get: "v1/nodes"
+        };
+    }
+
+    rpc Cluster(google.protobuf.Empty) returns (ClusterResponse) {
+        option (google.api.http) = {
+            get: "v1/cluster"
+        };
+    }
+
+
+    rpc Watch (google.protobuf.Empty) returns (stream WatchResponse) {}
+
 }
 
 
@@ -88,4 +125,61 @@ message GetAllKeysRequest {
 
 message GetAllKeysResponse {
     map<string,bytes> pairs=1;
+}
+
+enum EventType {
+    Unknown=0;
+    Join=1;
+    Leave=2;
+    Set=3;
+    Create=4;
+    Delete=5;
+}
+
+message Event {
+    EventType type = 1;
+    google.protobuf.Any message=2;
+}
+
+message HeartbeatCheckResponse {
+    bool alive=1;
+}
+
+message Metadata {
+    string grpcAddress=1;
+    string httpAddress=2;
+}
+
+message Node {
+    string raftAddress=1;
+    Metadata metadata=2;
+    string state=3;
+}
+
+message NodeResponse {
+    Node node=1;
+}
+
+message Cluster {
+    map<string,Node> nodes=1;
+    string leader=2;
+}
+
+message ClusterResponse {
+    Cluster cluster=1;
+}
+
+message JoinRequest {
+    string id=1;
+    Node node=2;
+}
+
+message LeaveRequest {
+    string id=1;
+}
+
+
+
+message WatchResponse {
+    Event event=1;
 }

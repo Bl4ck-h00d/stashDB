@@ -1,7 +1,7 @@
 .PHONY: protoc build test run clean setup install
 
 PROTO_SRC = protobuf/service.proto
-PROTO_OUT = protobuf
+PROTO_OUT = protobuf/
 API_COMMON_PROTOS_DIR = ../api-common-protos
 API_COMMON_PROTOS_REPO = https://github.com/googleapis/api-common-protos.git
 
@@ -55,7 +55,3 @@ clean:
 	@echo "Cleaning up..."
 	@rm -rf bin
 	@find $(PROTO_OUT) -name "*.pb.go" -delete
-	@if [ -d "$(API_COMMON_PROTOS_DIR)" ]; then \
-		echo "Removing api-common-protos directory..."; \
-		rm -rf $(API_COMMON_PROTOS_DIR); \
-	fi

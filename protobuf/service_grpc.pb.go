@@ -17,15 +17,21 @@ import (
 // This is a compile-time assertion to ensure that this generated file
 // is compatible with the grpc package it is being compiled against.
 // Requires gRPC-Go v1.64.0 or later.
-// const _ = grpc.SupportPackageIsVersion9
+const _ = grpc.SupportPackageIsVersion9
 
 const (
-	StashDBService_CreateBucket_FullMethodName  = "/stashDB.StashDBService/CreateBucket"
-	StashDBService_Get_FullMethodName           = "/stashDB.StashDBService/Get"
-	StashDBService_Set_FullMethodName           = "/stashDB.StashDBService/Set"
-	StashDBService_Delete_FullMethodName        = "/stashDB.StashDBService/Delete"
-	StashDBService_GetAllBuckets_FullMethodName = "/stashDB.StashDBService/GetAllBuckets"
-	StashDBService_GetAllKeys_FullMethodName    = "/stashDB.StashDBService/GetAllKeys"
+	StashDBService_CreateBucket_FullMethodName   = "/stashDB.StashDBService/CreateBucket"
+	StashDBService_Get_FullMethodName            = "/stashDB.StashDBService/Get"
+	StashDBService_Set_FullMethodName            = "/stashDB.StashDBService/Set"
+	StashDBService_Delete_FullMethodName         = "/stashDB.StashDBService/Delete"
+	StashDBService_GetAllBuckets_FullMethodName  = "/stashDB.StashDBService/GetAllBuckets"
+	StashDBService_GetAllKeys_FullMethodName     = "/stashDB.StashDBService/GetAllKeys"
+	StashDBService_HeartbeatCheck_FullMethodName = "/stashDB.StashDBService/HeartbeatCheck"
+	StashDBService_Join_FullMethodName           = "/stashDB.StashDBService/Join"
+	StashDBService_Leave_FullMethodName          = "/stashDB.StashDBService/Leave"
+	StashDBService_Node_FullMethodName           = "/stashDB.StashDBService/Node"
+	StashDBService_Cluster_FullMethodName        = "/stashDB.StashDBService/Cluster"
+	StashDBService_Watch_FullMethodName          = "/stashDB.StashDBService/Watch"
 )
 
 // StashDBServiceClient is the client API for StashDBService service.
@@ -38,6 +44,12 @@ type StashDBServiceClient interface {
 	Delete(ctx context.Context, in *DeleteRequest, opts ...grpc.CallOption) (*empty.Empty, error)
 	GetAllBuckets(ctx context.Context, in *empty.Empty, opts ...grpc.CallOption) (*GetAllBucketsResponse, error)
 	GetAllKeys(ctx context.Context, in *GetAllKeysRequest, opts ...grpc.CallOption) (*GetAllKeysResponse, error)
+	HeartbeatCheck(ctx context.Context, in *empty.Empty, opts ...grpc.CallOption) (*HeartbeatCheckResponse, error)
+	Join(ctx context.Context, in *JoinRequest, opts ...grpc.CallOption) (*empty.Empty, error)
+	Leave(ctx context.Context, in *LeaveRequest, opts ...grpc.CallOption) (*empty.Empty, error)
+	Node(ctx context.Context, in *empty.Empty, opts ...grpc.CallOption) (*NodeResponse, error)
+	Cluster(ctx context.Context, in *empty.Empty, opts ...grpc.CallOption) (*ClusterResponse, error)
+	Watch(ctx context.Context, in *empty.Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchResponse], error)
 }
 
 type stashDBServiceClient struct {
@@ -108,6 +120,75 @@ func (c *stashDBServiceClient) GetAllKeys(ctx context.Context, in *GetAllKeysReq
 	return out, nil
 }
 
+func (c *stashDBServiceClient) HeartbeatCheck(ctx context.Context, in *empty.Empty, opts ...grpc.CallOption) (*HeartbeatCheckResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(HeartbeatCheckResponse)
+	err := c.cc.Invoke(ctx, StashDBService_HeartbeatCheck_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *stashDBServiceClient) Join(ctx context.Context, in *JoinRequest, opts ...grpc.CallOption) (*empty.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(empty.Empty)
+	err := c.cc.Invoke(ctx, StashDBService_Join_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *stashDBServiceClient) Leave(ctx context.Context, in *LeaveRequest, opts ...grpc.CallOption) (*empty.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(empty.Empty)
+	err := c.cc.Invoke(ctx, StashDBService_Leave_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *stashDBServiceClient) Node(ctx context.Context, in *empty.Empty, opts ...grpc.CallOption) (*NodeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(NodeResponse)
+	err := c.cc.Invoke(ctx, StashDBService_Node_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *stashDBServiceClient) Cluster(ctx context.Context, in *empty.Empty, opts ...grpc.CallOption) (*ClusterResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ClusterResponse)
+	err := c.cc.Invoke(ctx, StashDBService_Cluster_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *stashDBServiceClient) Watch(ctx context.Context, in *empty.Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &StashDBService_ServiceDesc.Streams[0], StashDBService_Watch_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[empty.Empty, WatchResponse]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type StashDBService_WatchClient = grpc.ServerStreamingClient[WatchResponse]
+
 // StashDBServiceServer is the server API for StashDBService service.
 // All implementations must embed UnimplementedStashDBServiceServer
 // for forward compatibility.
@@ -118,6 +199,12 @@ type StashDBServiceServer interface {
 	Delete(context.Context, *DeleteRequest) (*empty.Empty, error)
 	GetAllBuckets(context.Context, *empty.Empty) (*GetAllBucketsResponse, error)
 	GetAllKeys(context.Context, *GetAllKeysRequest) (*GetAllKeysResponse, error)
+	HeartbeatCheck(context.Context, *empty.Empty) (*HeartbeatCheckResponse, error)
+	Join(context.Context, *JoinRequest) (*empty.Empty, error)
+	Leave(context.Context, *LeaveRequest) (*empty.Empty, error)
+	Node(context.Context, *empty.Empty) (*NodeResponse, error)
+	Cluster(context.Context, *empty.Empty) (*ClusterResponse, error)
+	Watch(*empty.Empty, grpc.ServerStreamingServer[WatchResponse]) error
 	mustEmbedUnimplementedStashDBServiceServer()
 }
 
@@ -145,6 +232,24 @@ func (UnimplementedStashDBServiceServer) GetAllBuckets(context.Context, *empty.E
 }
 func (UnimplementedStashDBServiceServer) GetAllKeys(context.Context, *GetAllKeysRequest) (*GetAllKeysResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetAllKeys not implemented")
+}
+func (UnimplementedStashDBServiceServer) HeartbeatCheck(context.Context, *empty.Empty) (*HeartbeatCheckResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method HeartbeatCheck not implemented")
+}
+func (UnimplementedStashDBServiceServer) Join(context.Context, *JoinRequest) (*empty.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Join not implemented")
+}
+func (UnimplementedStashDBServiceServer) Leave(context.Context, *LeaveRequest) (*empty.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Leave not implemented")
+}
+func (UnimplementedStashDBServiceServer) Node(context.Context, *empty.Empty) (*NodeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Node not implemented")
+}
+func (UnimplementedStashDBServiceServer) Cluster(context.Context, *empty.Empty) (*ClusterResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Cluster not implemented")
+}
+func (UnimplementedStashDBServiceServer) Watch(*empty.Empty, grpc.ServerStreamingServer[WatchResponse]) error {
+	return status.Errorf(codes.Unimplemented, "method Watch not implemented")
 }
 func (UnimplementedStashDBServiceServer) mustEmbedUnimplementedStashDBServiceServer() {}
 func (UnimplementedStashDBServiceServer) testEmbeddedByValue()                        {}
@@ -275,6 +380,107 @@ func _StashDBService_GetAllKeys_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _StashDBService_HeartbeatCheck_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(empty.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StashDBServiceServer).HeartbeatCheck(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: StashDBService_HeartbeatCheck_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StashDBServiceServer).HeartbeatCheck(ctx, req.(*empty.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _StashDBService_Join_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(JoinRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StashDBServiceServer).Join(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: StashDBService_Join_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StashDBServiceServer).Join(ctx, req.(*JoinRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _StashDBService_Leave_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LeaveRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StashDBServiceServer).Leave(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: StashDBService_Leave_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StashDBServiceServer).Leave(ctx, req.(*LeaveRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _StashDBService_Node_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(empty.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StashDBServiceServer).Node(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: StashDBService_Node_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StashDBServiceServer).Node(ctx, req.(*empty.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _StashDBService_Cluster_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(empty.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StashDBServiceServer).Cluster(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: StashDBService_Cluster_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StashDBServiceServer).Cluster(ctx, req.(*empty.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _StashDBService_Watch_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(empty.Empty)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(StashDBServiceServer).Watch(m, &grpc.GenericServerStream[empty.Empty, WatchResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type StashDBService_WatchServer = grpc.ServerStreamingServer[WatchResponse]
+
 // StashDBService_ServiceDesc is the grpc.ServiceDesc for StashDBService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -306,7 +512,33 @@ var StashDBService_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "GetAllKeys",
 			Handler:    _StashDBService_GetAllKeys_Handler,
 		},
+		{
+			MethodName: "HeartbeatCheck",
+			Handler:    _StashDBService_HeartbeatCheck_Handler,
+		},
+		{
+			MethodName: "Join",
+			Handler:    _StashDBService_Join_Handler,
+		},
+		{
+			MethodName: "Leave",
+			Handler:    _StashDBService_Leave_Handler,
+		},
+		{
+			MethodName: "Node",
+			Handler:    _StashDBService_Node_Handler,
+		},
+		{
+			MethodName: "Cluster",
+			Handler:    _StashDBService_Cluster_Handler,
+		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "Watch",
+			Handler:       _StashDBService_Watch_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "protobuf/service.proto",
 }

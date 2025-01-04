@@ -17,7 +17,7 @@ var (
 		Args:  cobra.ExactArgs(3),
 		Short: "Set a key-value",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			grpcPort := viper.GetString("grpc-port")
+			grpcAddress := viper.GetString("grpc-address")
 			certificateFile = viper.GetString("certificate-file")
 			commonName = viper.GetString("common-name")
 
@@ -25,7 +25,7 @@ var (
 			key := args[1]
 			value := args[2]
 
-			c, err := client.NewGRPCClientWithContextTLS(context.Background(), grpcPort, certificateFile, commonName)
+			c, err := client.NewGRPCClientWithContextTLS(context.Background(), grpcAddress, certificateFile, commonName)
 			if err != nil {
 				return err
 			}
@@ -76,12 +76,12 @@ func init() {
 
 	// Flags
 	setCmd.PersistentFlags().StringVar(&configFile, "config", "", "config file path. If omitted, stashDB.yaml will be searched in /config")
-	setCmd.PersistentFlags().StringVar(&grpcPort, "grpc-port", ":9000", "gRPC server listend address port")
+	setCmd.PersistentFlags().StringVar(&grpcAddress, "grpc-address", ":9000", "gRPC server listend address port")
 	setCmd.PersistentFlags().StringVar(&certificateFile, "certificate-file", "", "path to the client server TLS certificate file")
 	setCmd.PersistentFlags().StringVar(&commonName, "common-name", "", "certificate common name")
 
 	// Viper bindings
-	viper.BindPFlag("grpc-port", setCmd.PersistentFlags().Lookup("grpc-port"))
+	viper.BindPFlag("grpc-address", setCmd.PersistentFlags().Lookup("grpc-address"))
 	viper.BindPFlag("certificate-file", setCmd.PersistentFlags().Lookup("certificate-file"))
 	viper.BindPFlag("common-name", setCmd.PersistentFlags().Lookup("common-name"))
 }

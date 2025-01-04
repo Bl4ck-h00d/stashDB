@@ -7,10 +7,10 @@ import (
 )
 
 // Factory
-func NewStore(dbType, dbPath string) (types.Store, error) {
+func NewStore(dbType, dataDir string) (types.Store, error) {
 	switch dbType {
 	case "bolt":
-		return NewBoltStore(dbPath)
+		return NewBoltStore(dataDir)
 
 	default:
 		return nil, fmt.Errorf("unsupported database type: %v", dbType)

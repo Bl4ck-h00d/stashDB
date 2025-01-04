@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"path/filepath"
 	"time"
 
 	"github.com/Bl4ck-h00d/stashdb/types"
@@ -15,7 +16,8 @@ type BoltStore struct {
 	db *bbolt.DB
 }
 
-func NewBoltStore(path string) (*BoltStore, error) {
+func NewBoltStore(dataDir string) (*BoltStore, error) {
+	path := filepath.Join(dataDir, "stash.db")
 	db, err := bolt.Open(path, 0666, nil)
 	if err != nil {
 		return nil, fmt.Errorf("error while opening bolt store: %v", err)

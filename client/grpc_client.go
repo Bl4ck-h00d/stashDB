@@ -71,6 +71,18 @@ func NewGRPCClientWithContextTLS(ctx context.Context, grpcAddress string, certif
 	}, nil
 }
 
+// Target returns the target address of the gRPC connection.
+//
+// The target address is the address of the server that the client is currently
+// connected to. If the client is not connected, this method will return an empty
+// string.
+//
+// Return value:
+// - string: The target address of the gRPC connection.
+func (c *GRPCClient) Target() string {
+    return c.conn.Target()
+}
+
 func (c *GRPCClient) Close() error {
 	c.cancel()
 	if c.conn != nil {

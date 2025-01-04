@@ -8,9 +8,9 @@ import (
 )
 
 func GetGrpcClient() (*client.GRPCClient, error) {
-	grpcPort := viper.GetString("grpc-port")
+	grpcAddress := viper.GetString("grpc-address")
 	certificateFile := viper.GetString("certificate-file")
 	commonName := viper.GetString("common-name")
 
-	return client.NewGRPCClientWithContextTLS(context.Background(), grpcPort, certificateFile, commonName)
+	return client.NewGRPCClientWithContextTLS(context.Background(), grpcAddress, certificateFile, commonName)
 }

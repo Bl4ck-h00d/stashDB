@@ -7,6 +7,7 @@ import (
 
 	"github.com/Bl4ck-h00d/stashdb/core/store"
 	"github.com/Bl4ck-h00d/stashdb/protobuf"
+	"github.com/Bl4ck-h00d/stashdb/raft"
 	"google.golang.org/grpc"
 )
 
@@ -17,7 +18,7 @@ type GRPCServer struct {
 	listener    net.Listener
 }
 
-func NewGRPCServer(grpcAddress, storageEngine, dataPath string) (*GRPCServer, error) {
+func NewGRPCServer(grpcAddress, storageEngine, dataPath, certificateFile, commonName string, raftServer *raft.RaftServer) (*GRPCServer, error) {
 
 	server := grpc.NewServer()
 	listener, err := net.Listen("tcp", grpcAddress)
@@ -27,7 +28,7 @@ func NewGRPCServer(grpcAddress, storageEngine, dataPath string) (*GRPCServer, er
 		panic(fmt.Sprintf("failed to open database: %v", err))
 	}
 
-	service := NewGRPCService(dataStore)
+	service := NewGRPCService(dataStore, certificateFile,commonName,raftServer)
 
 	protobuf.RegisterStashDBServiceServer(server, service)
 

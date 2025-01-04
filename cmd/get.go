@@ -16,14 +16,14 @@ var (
 		Args:  cobra.ExactArgs(2),
 		Short: "Get a key from a bucket",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			grpcPort := viper.GetString("grpc-port")
+			grpcAddress := viper.GetString("grpc-address")
 			certificateFile = viper.GetString("certificate-file")
 			commonName = viper.GetString("common-name")
 
 			bucket := args[0]
 			key := args[1]
 
-			c, err := client.NewGRPCClientWithContextTLS(context.Background(), grpcPort, certificateFile, commonName)
+			c, err := client.NewGRPCClientWithContextTLS(context.Background(), grpcAddress, certificateFile, commonName)
 			if err != nil {
 				return err
 			}
