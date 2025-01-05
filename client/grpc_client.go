@@ -80,7 +80,7 @@ func NewGRPCClientWithContextTLS(ctx context.Context, grpcAddress string, certif
 // Return value:
 // - string: The target address of the gRPC connection.
 func (c *GRPCClient) Target() string {
-    return c.conn.Target()
+	return c.conn.Target()
 }
 
 func (c *GRPCClient) Close() error {
@@ -90,6 +90,29 @@ func (c *GRPCClient) Close() error {
 	}
 
 	return c.ctx.Err()
+}
+
+func (c *GRPCClient) Join(req *protobuf.JoinRequest, opts ...grpc.CallOption) error {
+	if _, err := c.client.Join(c.ctx, req, opts...); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *GRPCClient) Node(opts ...grpc.CallOption) (*protobuf.NodeResponse, error) {
+	if res, err := c.client.Node(c.ctx, &empty.Empty{}, opts...); err != nil {
+		return nil, err
+	} else {
+		return res, nil
+	}
+}
+
+func (c *GRPCClient) Cluster(opts ...grpc.CallOption) (*protobuf.ClusterResponse, error) {
+	if res, err := c.client.Cluster(c.ctx, &empty.Empty{}, opts...); err != nil {
+		return nil, err
+	} else {
+		return res, nil
+	}
 }
 
 func (c *GRPCClient) CreateBucket(req *protobuf.CreateBucketRequest, opts ...grpc.CallOption) error {

@@ -73,7 +73,7 @@ service StashDBService {
 
     rpc Node(google.protobuf.Empty) returns (NodeResponse) {
         option (google.api.http)={
-            get: "v1/nodes"
+            get: "v1/node"
         };
     }
 
@@ -148,6 +148,15 @@ message HeartbeatCheckResponse {
 message Metadata {
     string grpcAddress=1;
     string httpAddress=2;
+}
+
+message SetMetadataRequest {
+    string id=1;
+    Metadata metadata=2;
+}
+
+message DeleteMetadataRequest {
+    string id=1;
 }
 
 message Node {

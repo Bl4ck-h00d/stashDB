@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"log/slog"
@@ -8,7 +9,10 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
+	"github.com/Bl4ck-h00d/stashdb/client"
+	"github.com/Bl4ck-h00d/stashdb/protobuf"
 	"github.com/Bl4ck-h00d/stashdb/raft"
 	"github.com/Bl4ck-h00d/stashdb/server"
 	"github.com/spf13/cobra"
@@ -62,7 +66,7 @@ var (
 				os.Exit(1)
 			}
 
-			grpcServer, err := server.NewGRPCServer(grpcAddress, storageEngine, dataDir,certificateFile,commonName, raftServer)
+			grpcServer, err := server.NewGRPCServer(grpcAddress, storageEngine, dataDir, certificateFile, commonName, raftServer)
 			if err != nil {
 				slog.Error("failed to create gRPC server", slog.Any("error", err))
 				os.Exit(1)
@@ -76,6 +80,49 @@ var (
 			if err := grpcServer.Start(); err != nil {
 				slog.Error("failed to start gRPC server", slog.Any("error", err))
 				os.Exit(1)
+			}
+
+			if bootstrap {
+				timeout := 60 * time.Second
+				_, err := raftServer.DetectLeader(timeout)
+				if err != nil {
+					slog.Error("leader detection took to long", slog.Any("error", err))
+					os.Exit(1)
+				}
+			}
+
+			var joinGrpcAddress string
+			if bootstrap {
+				joinGrpcAddress = grpcAddress
+			} else {
+				joinGrpcAddress = peerGrpcAddress
+			}
+
+			// create a client connection to a peer node
+			c, err := client.NewGRPCClientWithContextTLS(context.Background(), joinGrpcAddress, certificateFile, commonName)
+			if err != nil {
+				slog.Error("failed to create client", slog.Any("error", err))
+				os.Exit(1)
+			}
+
+			defer func() {
+				c.Close()
+			}()
+
+			//prepare join request
+			joinReq := &protobuf.JoinRequest{
+				Id: id,
+				Node: &protobuf.Node{
+					RaftAddress: raftAddress,
+					Metadata: &protobuf.Metadata{
+						GrpcAddress: grpcAddress,
+						HttpAddress: httpAddress,
+					},
+				},
+			}
+
+			if err := c.Join(joinReq); err != nil {
+				slog.Error("failed to join cluster", slog.Any("error", err))
 			}
 
 			// wait for receiving signal

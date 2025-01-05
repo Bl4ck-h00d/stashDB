@@ -1,6 +1,7 @@
 package raft
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Bl4ck-h00d/stashdb/protobuf"
+	"github.com/golang/protobuf/ptypes/any"
 	"github.com/hashicorp/raft"
 	raftboltdb "github.com/hashicorp/raft-boltdb"
 )
@@ -21,7 +23,7 @@ type RaftServer struct {
 	bootstrap   bool // if true, only node in cluster
 	raftDir     string
 
-	raft *raft.Raft // The consensus mechanism
+	Raft *raft.Raft // The consensus mechanism
 
 	watchClusterStopCh chan struct{} //trigger stop the cluster
 	watchClusterDoneCh chan struct{} //graceful shutdown
@@ -92,7 +94,7 @@ func (r *RaftServer) Start() error {
 		slog.Error("failed to instantiate raft system", slog.Any("error", err))
 		return err
 	}
-	r.raft = ra
+	r.Raft = ra
 
 	if r.bootstrap {
 		configuration := raft.Configuration{
@@ -126,7 +128,7 @@ func (r *RaftServer) Stop() error {
 	}
 	slog.Debug("closed Raft FSM")
 
-	if future := r.raft.Shutdown(); future.Error() != nil {
+	if future := r.Raft.Shutdown(); future.Error() != nil {
 		slog.Error("failed to shutdown Raft", slog.Any("error", future.Error()))
 		return future.Error()
 	}
@@ -139,11 +141,15 @@ func (r *RaftServer) Stop() error {
 func (r *RaftServer) startWatchCluster(checkInterval time.Duration) {
 	slog.Info("Initiating Raft watch cluster")
 
+	defer func() {
+		close(r.watchClusterDoneCh)
+	}()
+
 	ticker := time.NewTicker(checkInterval)
 	defer ticker.Stop()
 
 	timeout := 60 * time.Second
-	if err := r.DetectLeader(timeout); err != nil {
+	if _, err := r.DetectLeader(timeout); err != nil {
 		slog.Error("leader detection took to long", slog.Any("error", err))
 	}
 
@@ -152,8 +158,8 @@ func (r *RaftServer) startWatchCluster(checkInterval time.Duration) {
 		case <-r.watchClusterStopCh:
 			slog.Info("stoping watch cluster")
 			return
-		case <-r.raft.LeaderCh():
-			slog.Info("elected as leader", slog.String("leaderAddr", string(r.raft.Leader())))
+		case <-r.Raft.LeaderCh():
+			slog.Info("elected as leader", slog.String("leaderAddr", string(r.Raft.Leader())))
 		case event := <-r.fsm.eventCh:
 			r.EventCh <- event
 		}
@@ -170,11 +176,7 @@ func (r *RaftServer) stopWatchCluster() {
 //
 // Parameters:
 // - timeout: The maximum duration to wait for a leader to be elected.
-//
-// Returns:
-// - nil: If a leader is detected within the specified timeout.
-// - error: If no leader is detected within the specified timeout.
-func (r *RaftServer) DetectLeader(timeout time.Duration) error {
+func (r *RaftServer) DetectLeader(timeout time.Duration) (raft.ServerAddress, error) {
 	// emits event after each tick, on the returned channel
 	// periodically check for leader
 	ticker := time.NewTicker(100 * time.Millisecond)
@@ -188,23 +190,48 @@ func (r *RaftServer) DetectLeader(timeout time.Duration) error {
 	for {
 		select {
 		case <-ticker.C: // leader detected
-			leaderAddr := r.raft.Leader()
+			leaderAddr := r.Raft.Leader()
 			if leaderAddr != "" {
 				slog.Debug("leader detected", slog.String("address", string(leaderAddr)))
-				return nil
+				return leaderAddr, nil
 			}
 
 		case <-timer.C: // timeout occurred
 			err := errors.New("timeout waiting for leader")
 			slog.Error("failed to detect leader", slog.Any("error", err))
-			return err
+			return "", err
 		}
 	}
 }
 
+func (s *RaftServer) GetLeaderID(timeout time.Duration) (raft.ServerID, error) {
+	leaderAddr, err := s.DetectLeader(timeout)
+	if err != nil {
+		slog.Error("failed to detect leader", slog.Any("error", err))
+		return "", err
+	}
+
+	cf := s.Raft.GetConfiguration()
+	if err := cf.Error(); err != nil {
+		slog.Error("failed to get Raft configuration", slog.Any("error", err))
+		return "", err
+	}
+
+	for _, srv := range cf.Configuration().Servers {
+		if srv.Address == leaderAddr {
+			slog.Info("leader detected", slog.String("id", string(srv.ID)))
+			return srv.ID, nil
+		}
+	}
+
+	err = errors.New("failed to detect leader ID")
+	slog.Error("failed to detect leader ID")
+	return "", err
+}
+
 // Nodes returns a map of all nodes in the Raft cluster, including their Raft addresses and metadata.
 func (r *RaftServer) Nodes() (map[string]*protobuf.Node, error) {
-	conf := r.raft.GetConfiguration()
+	conf := r.Raft.GetConfiguration()
 	if err := conf.Error(); err != nil {
 		slog.Error("failed to get Raft configuration", slog.Any("error", err))
 		return nil, err
@@ -221,6 +248,7 @@ func (r *RaftServer) Nodes() (map[string]*protobuf.Node, error) {
 	return nodes, nil
 }
 
+// Node returns information about the current Raft server node, including its Raft address, metadata, and state.
 func (r *RaftServer) Node() (*protobuf.Node, error) {
 	nodes, err := r.Nodes()
 	if err != nil {
@@ -232,7 +260,68 @@ func (r *RaftServer) Node() (*protobuf.Node, error) {
 		return nil, fmt.Errorf("node %s not found in the cluster", r.Id)
 	}
 
-	node.State = r.raft.State().String()
+	node.State = r.Raft.State().String()
 
 	return node, nil
+}
+
+func (r *RaftServer) Join(id string, node *protobuf.Node) error {
+	nodeExists, err := r.Exists(id)
+	if err != nil {
+		return err
+	}
+
+	if nodeExists {
+		slog.Debug("node already exists in the cluster", slog.String("id", id), slog.String("raft-address", node.RaftAddress))
+	} else {
+		future := r.Raft.AddVoter(raft.ServerID(id), raft.ServerAddress(node.RaftAddress), 0, 0)
+
+		if future.Error() != nil {
+			slog.Error("failed to add peer", slog.String("id", id), slog.String("raft-address", node.RaftAddress), slog.Any("error", future.Error()))
+			return future.Error()
+		}
+
+		slog.Info("node has been added successfully", slog.String("id", id), slog.String("raft-address", node.RaftAddress))
+	}
+
+	err = r.publishJoinEvent(id, node.Metadata)
+
+	if err != nil {
+		slog.Error("failed to set metadata", slog.String("id", id), slog.Any("metadata", node.Metadata), slog.Any("error", err))
+		return err
+	}
+
+	slog.Info("node metadata updated successfully", slog.String("id", id), slog.Any("metadata", node.Metadata))
+	return nil
+}
+
+func (r *RaftServer) publishJoinEvent(id string, metadata *protobuf.Metadata) error {
+	data := &protobuf.SetMetadataRequest{
+		Id:       id,
+		Metadata: metadata,
+	}
+
+	// convert request to any type
+	dataAny := &any.Any{}
+	marshalledVal, _ := json.Marshal(data)
+	json.Unmarshal(marshalledVal, dataAny)
+
+	event := &protobuf.Event{
+		Type:    protobuf.EventType_Join,
+		Message: dataAny,
+	}
+
+	marshalledEvent, _ := json.Marshal(event)
+
+	f := r.Raft.Apply(marshalledEvent, 10*time.Second)
+	if err := f.Error(); err != nil {
+		slog.Error("failed to apply message", slog.String("id", id), slog.Any("metadata", metadata), slog.Any("error", err))
+		return err
+	}
+
+	return nil
+}
+
+func (r *RaftServer) Exists(id string) (bool, error) {
+	return false, nil
 }

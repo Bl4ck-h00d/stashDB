@@ -11,6 +11,7 @@ import (
 	"github.com/Bl4ck-h00d/stashdb/raft"
 	"github.com/Bl4ck-h00d/stashdb/types"
 	"github.com/golang/protobuf/ptypes/empty"
+	_raft "github.com/hashicorp/raft"
 )
 
 type GRPCService struct {
@@ -81,7 +82,7 @@ func (s *GRPCService) startWatchCluster(interval time.Duration) {
 	defer ticker.Stop()
 
 	timeout := 60 * time.Second // leader detection timeout
-	if err := s.raftServer.DetectLeader(timeout); err != nil {
+	if _, err := s.raftServer.DetectLeader(timeout); err != nil {
 		slog.Error("leader detection took to long", slog.Any("error", err))
 	}
 
@@ -265,4 +266,82 @@ func (s *GRPCService) GetAllKeys(ctx context.Context, req *protobuf.GetAllKeysRe
 	}
 
 	return &protobuf.GetAllKeysResponse{Pairs: resp}, nil
+}
+
+func (s *GRPCService) Join(ctx context.Context, req *protobuf.JoinRequest) (*empty.Empty, error) {
+	resp := &empty.Empty{}
+
+	// check if the current node is a leader
+	// if not then forward the join request to the leader
+	if s.raftServer.Raft.State() != _raft.Leader {
+		// get the leader node
+
+		cluster, err := s.Cluster(ctx, &empty.Empty{})
+		if err != nil {
+			slog.Error("failed to get cluster info", slog.Any("error", err))
+			return resp, err
+		}
+
+		// get grpc client for leader node
+		c := s.peerGrpcClients[cluster.Cluster.Leader]
+
+		// forward join request to the leader node
+		err = c.Join(req)
+		if err != nil {
+			slog.Error("failed to forward request to leader node", slog.Any("error", err))
+			return resp, err
+		}
+
+		return resp, nil
+	}
+
+	// if current node is the leader
+	err := s.raftServer.Join(req.Id, req.Node)
+	if err != nil {
+		return resp, err
+	}
+	return resp, nil
+}
+
+func (s *GRPCService) Cluster(ctx context.Context, req *empty.Empty) (*protobuf.ClusterResponse, error) {
+	resp := &protobuf.ClusterResponse{}
+
+	cluster := &protobuf.Cluster{}
+
+	// get map of nodes in the cluster
+	nodes, err := s.raftServer.Nodes()
+	if err != nil {
+		slog.Error("failed to get cluster info", slog.Any("error", err))
+		return resp, err
+	}
+
+	// update the node states
+	for id, node := range nodes {
+		if id == s.raftServer.Id {
+			node.State = s.raftServer.Raft.State().String()
+		} else {
+			c := s.peerGrpcClients[id]
+			nodeResp, err := c.Node()
+			if err != nil {
+				slog.Error("failed to get node info", slog.String("id", id), slog.Any("error", err))
+			} else {
+				node.State = nodeResp.Node.State
+			}
+		}
+	}
+
+	// update the cluster
+	cluster.Nodes = nodes
+
+	// get the leader
+	serverId, err := s.raftServer.GetLeaderID(60 * time.Second)
+	if err != nil {
+		slog.Error("failed to get cluster info", slog.Any("error", err))
+		return resp, err
+	}
+
+	cluster.Leader = string(serverId)
+	resp.Cluster = cluster
+
+	return resp, nil
 }
