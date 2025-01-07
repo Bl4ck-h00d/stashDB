@@ -16,7 +16,6 @@ import (
 	"github.com/hashicorp/raft"
 	raftboltdb "github.com/hashicorp/raft-boltdb"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/anypb"
 )
 
 type RaftServer struct {
@@ -435,17 +434,16 @@ func (r *RaftServer) publishLeaveEvent(id string) error {
 // CRUD utilities
 
 func (r *RaftServer) CreateBucket(req *protobuf.CreateBucketRequest) error {
-	c := &protobuf.Event{
-		Type: protobuf.EventType_Create,
-	}
-
-	reqAny, err := anypb.New(req)
-	if err != nil {
-		slog.Error("failed to wrap request into anypb.Any", slog.String("bucket", req.Name))
+	reqAny := &any.Any{}
+	if err := marshaler.UnmarshalAny(req, reqAny); err != nil {
+		slog.Error("failed to unmarshal request to the command data", slog.String("key", req.Name), slog.Any("error", err))
 		return err
 	}
 
-	c.Message = reqAny
+	c := &protobuf.Event{
+		Type:    protobuf.EventType_Create,
+		Message: reqAny,
+	}
 
 	// Marshal the Event into bytes
 	msg, err := proto.Marshal(c)
@@ -469,7 +467,7 @@ func (r *RaftServer) Get(req *protobuf.GetRequest) (*protobuf.GetResponse, error
 	}
 
 	res := &protobuf.GetResponse{
-		Value: []byte(resp.Value),
+		Value:     []byte(resp.Value),
 		Timestamp: resp.Timestamp,
 	}
 

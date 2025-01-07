@@ -49,4 +49,8 @@ var (
 
 func init() {
 	rootCmd.AddCommand(getCmd)
+
+	getCmd.PersistentFlags().StringVar(&grpcAddress, "grpc-address", ":9000", "gRPC server listend address port")
+	viper.BindPFlag("grpc-address", setCmd.PersistentFlags().Lookup("grpc-address"))
+
 }

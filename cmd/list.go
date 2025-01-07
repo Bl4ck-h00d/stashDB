@@ -6,6 +6,7 @@ import (
 	"github.com/Bl4ck-h00d/stashdb/cmd/utils"
 	"github.com/Bl4ck-h00d/stashdb/protobuf"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var (
@@ -61,4 +62,8 @@ func init() {
 	listCmd.Flags().StringVarP(&detailBucket, "bucket", "d", "", "Specify the bucket to list key-value pairs from")
 	listCmd.Flags().IntVar(&limit, "limit", 10, "Limit the number of key-value pairs listed")
 	rootCmd.AddCommand(listCmd)
+
+	listCmd.PersistentFlags().StringVar(&grpcAddress, "grpc-address", ":9000", "gRPC server listend address port")
+	viper.BindPFlag("grpc-address", setCmd.PersistentFlags().Lookup("grpc-address"))
+
 }

@@ -55,6 +55,7 @@ var (
 			if err != nil {
 				return err
 			}
+			fmt.Println("added to the cluster")
 
 			return nil
 		},

@@ -95,7 +95,7 @@ func (f *RaftFSM) Apply(l *raft.Log) interface{} {
 			return err
 		}
 
-		req := *data.(*protobuf.CreateMetadataRequest)
+		req := *data.(*protobuf.CreateBucketRequest)
 		res := f.applyCreateBucket(req.Name)
 		if res == nil {
 			f.eventCh <- &event

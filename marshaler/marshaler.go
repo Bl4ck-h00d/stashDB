@@ -19,6 +19,7 @@ func init() {
 	types.RegisterType("protobuf.LeaveRequest", reflect.TypeOf(protobuf.LeaveRequest{}))
 	types.RegisterType("protobuf.NodeResponse", reflect.TypeOf(protobuf.NodeResponse{}))
 	types.RegisterType("protobuf.ClusterResponse", reflect.TypeOf(protobuf.ClusterResponse{}))
+	types.RegisterType("protobuf.CreateBucketRequest", reflect.TypeOf(protobuf.CreateBucketRequest{}))
 	types.RegisterType("protobuf.GetRequest", reflect.TypeOf(protobuf.GetRequest{}))
 	types.RegisterType("protobuf.GetResponse", reflect.TypeOf(protobuf.GetResponse{}))
 	types.RegisterType("protobuf.SetRequest", reflect.TypeOf(protobuf.SetRequest{}))

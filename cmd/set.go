@@ -42,6 +42,8 @@ var (
 			if err := c.Set(req); err != nil {
 				return err
 			}
+			fmt.Println("query executed")
+
 
 			return nil
 		},

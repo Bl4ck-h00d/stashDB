@@ -148,6 +148,7 @@ func (s *GRPCService) updatePeerGrpcClients() {
 
 		if node.Metadata == nil || node.Metadata.GrpcAddress == "" {
 			slog.Debug("gRPC address is missing", slog.String("id", id))
+			continue
 		}
 
 		if c, ok := s.peerGrpcClients[id]; ok {
