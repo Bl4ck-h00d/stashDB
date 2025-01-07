@@ -78,7 +78,7 @@ func (h *Handlers) handleGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	value := h.store.Get(bucket, key)
+	value,_ := h.store.Get(bucket, key)
 	if value == nil {
 		utils.Log("GET operation failed", http.StatusNotFound, errors.New("key not found"))
 		utils.WriteError(w, http.StatusNotFound, errors.New("key not found"))
@@ -86,7 +86,7 @@ func (h *Handlers) handleGet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	utils.Log("GET succeeded", http.StatusOK, nil)
-	utils.WriteJSON(w, http.StatusOK, string(value[:]))
+	utils.WriteJSON(w, http.StatusOK, string(value.Value[:]))
 }
 
 // DELETE /delete?key=_key&bucket=_bucket

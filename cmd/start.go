@@ -50,7 +50,8 @@ var (
 			}
 
 			handlerOpts := &slog.HandlerOptions{
-				Level: level,
+				Level:     level,
+				// AddSource: true,
 			}
 			logger := slog.New(slog.NewTextHandler(os.Stderr, handlerOpts))
 			slog.SetDefault(logger)
@@ -97,7 +98,8 @@ var (
 			} else {
 				joinGrpcAddress = peerGrpcAddress
 			}
-
+			slog.Info("cluster status", slog.Bool("bootstrap", bootstrap), slog.String("peer-addr", joinGrpcAddress))
+			
 			// create a client connection to a peer node
 			c, err := client.NewGRPCClientWithContextTLS(context.Background(), joinGrpcAddress, certificateFile, commonName)
 			if err != nil {
@@ -166,9 +168,10 @@ func init() {
 	startCmd.PersistentFlags().StringVar(&grpcAddress, "grpc-address", ":9000", "gRPC server listend address port")
 	startCmd.PersistentFlags().StringVar(&httpAddress, "http-address", ":8080", "HTTP server listend address port")
 	startCmd.PersistentFlags().StringVar(&raftAddress, "raft-address", ":7000", "Cluster communication port")
+	startCmd.PersistentFlags().StringVar(&peerGrpcAddress, "peer-grpc-address", "", "listen address of the existing gRPC server in the joining cluster")
 	startCmd.PersistentFlags().StringVar(&storageEngine, "storage-engine", "bolt", "set storage engine")
 	startCmd.PersistentFlags().StringVar(&dataDir, "data-dir", "data", "data directory path which stores the key-value store data and logs")
-	startCmd.PersistentFlags().StringVar(&logLevel, "log", "info", "set debug level")
+	startCmd.PersistentFlags().StringVar(&logLevel, "log", "debug", "set debug level")
 
 	startCmd.PersistentFlags().StringVar(&certificateFile, "certificate-file", "", "path to the client server TLS certificate file")
 	startCmd.PersistentFlags().StringVar(&commonName, "common-name", "", "certificate common name")
@@ -178,7 +181,8 @@ func init() {
 	viper.BindPFlag("grpc-address", startCmd.PersistentFlags().Lookup("grpc-address"))
 	viper.BindPFlag("http-address", startCmd.PersistentFlags().Lookup("http-address"))
 	viper.BindPFlag("raft-address", startCmd.PersistentFlags().Lookup("raft-address"))
-	viper.BindPFlag("data-directory", startCmd.PersistentFlags().Lookup("data-directory"))
+	viper.BindPFlag("peer-grpc-address", startCmd.PersistentFlags().Lookup("peer-grpc-address"))
+	viper.BindPFlag("data-directory", startCmd.PersistentFlags().Lookup("data-dir"))
 	viper.BindPFlag("storage-engine", startCmd.PersistentFlags().Lookup("storage-engine"))
 	viper.BindPFlag("log-level", startCmd.PersistentFlags().Lookup("log"))
 	viper.BindPFlag("certificate-file", startCmd.PersistentFlags().Lookup("certificate-file"))

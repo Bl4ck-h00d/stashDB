@@ -1,12 +1,15 @@
 package types
 
+import "github.com/Bl4ck-h00d/stashdb/protobuf"
+
 type Store interface {
 	CreateBucket(name string) error
 	Set(bucket, key string, value []byte) error
-	Get(bucket, key string) []byte
+	Get(bucket, key string) (*ValueWithTimestamp, error)
 	Delete(bucket, key string) error
 	GetAllBuckets() ([]string, error)
-	GetAllKeys(bucket string, limit int64) (map[string][]byte, error)
+	GetAllKeys(bucket string, limit int64) (map[string]*ValueWithTimestamp, error)
+	SnapshotItems() <-chan *protobuf.KeyValuePair
 	Close() error
 }
 

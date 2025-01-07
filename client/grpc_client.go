@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 )
@@ -48,16 +49,17 @@ func NewGRPCClientWithContextTLS(ctx context.Context, grpcAddress string, certif
 	ctx, cancel := context.WithCancel(ctx)
 
 	if certificateFile == "" {
-		dialOpts = append(dialOpts, grpc.WithInsecure())
+		dialOpts = append(dialOpts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	} else {
 		creds, err := credentials.NewClientTLSFromFile(certificateFile, commonName)
 		if err != nil {
+			cancel() // Clean up context if credentials fail
 			return nil, err
 		}
 		dialOpts = append(dialOpts, grpc.WithTransportCredentials(creds))
 	}
 
-	conn, err := grpc.DialContext(ctx, grpcAddress, dialOpts...)
+	conn, err := grpc.NewClient(grpcAddress, dialOpts...)
 	if err != nil {
 		cancel()
 		return nil, err
@@ -97,6 +99,17 @@ func (c *GRPCClient) Join(req *protobuf.JoinRequest, opts ...grpc.CallOption) er
 		return err
 	}
 	return nil
+}
+
+func (c *GRPCClient) Leave(req *protobuf.LeaveRequest, opts ...grpc.CallOption) error {
+	if _, err := c.client.Leave(c.ctx, req, opts...); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *GRPCClient) Watch(req *empty.Empty, opts ...grpc.CallOption) (protobuf.StashDBService_WatchClient, error) {
+	return c.client.Watch(c.ctx, req, opts...)
 }
 
 func (c *GRPCClient) Node(opts ...grpc.CallOption) (*protobuf.NodeResponse, error) {

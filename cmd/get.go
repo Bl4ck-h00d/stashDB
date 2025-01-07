@@ -41,7 +41,7 @@ var (
 				return err
 			}
 
-			fmt.Printf("%s/%s => %+v", bucket, key, string(resp.Value[:]))
+			fmt.Printf("[%s]-[%s]: %+v\n", bucket, key, string(resp.Value[:]))
 			return nil
 		},
 	}

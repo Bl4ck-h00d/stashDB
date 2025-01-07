@@ -4,9 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"path/filepath"
+	"log/slog"
 	"time"
 
+	"github.com/Bl4ck-h00d/stashdb/protobuf"
 	"github.com/Bl4ck-h00d/stashdb/types"
 	"go.etcd.io/bbolt"
 	bolt "go.etcd.io/bbolt"
@@ -17,7 +18,8 @@ type BoltStore struct {
 }
 
 func NewBoltStore(dataDir string) (*BoltStore, error) {
-	path := filepath.Join(dataDir, "stash.db")
+	path := dataDir
+	slog.Info("data path", slog.String("dir", dataDir))
 	db, err := bolt.Open(path, 0666, nil)
 	if err != nil {
 		return nil, fmt.Errorf("error while opening bolt store: %v", err)
@@ -69,7 +71,7 @@ func (b *BoltStore) Set(bucket, key string, value []byte) error {
 *
 Please note that values returned from Get() are only valid while the transaction is open. If you need to use a value outside of the transaction then you must use copy() to copy it to another byte slice
 */
-func (b *BoltStore) Get(bucket, key string) []byte {
+func (b *BoltStore) Get(bucket, key string) (*types.ValueWithTimestamp, error) {
 	var valueWithTimestamp types.ValueWithTimestamp
 
 	err := b.db.View(func(tx *bolt.Tx) error {
@@ -94,11 +96,11 @@ func (b *BoltStore) Get(bucket, key string) []byte {
 	})
 
 	if err != nil {
-		return nil
+		return nil, err // Return the error along with nil
 	}
 
-	// Return the raw value (without the timestamp)
-	return valueWithTimestamp.Value
+	// Return the value along with the timestamp
+	return &valueWithTimestamp, nil
 }
 
 func (b *BoltStore) Delete(bucket, key string) error {
@@ -130,12 +132,12 @@ func (b *BoltStore) GetAllBuckets() ([]string, error) {
 	return buckets, nil
 }
 
-func (b *BoltStore) GetAllKeys(bucket string, limit int64) (map[string][]byte, error) {
+func (b *BoltStore) GetAllKeys(bucket string, limit int64) (map[string]*types.ValueWithTimestamp, error) {
 	if limit <= 0 {
 		limit = 10 // Default limit
 	}
 
-	results := make(map[string][]byte)
+	results := make(map[string]*types.ValueWithTimestamp)
 
 	err := b.db.View(func(tx *bolt.Tx) error {
 		bkt := tx.Bucket([]byte(bucket))
@@ -147,7 +149,11 @@ func (b *BoltStore) GetAllKeys(bucket string, limit int64) (map[string][]byte, e
 		c := bkt.Cursor()
 		var count int64 = 0
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			results[string(k)] = v
+			var valueWithTimestamp types.ValueWithTimestamp
+			if err := json.Unmarshal(v, &valueWithTimestamp); err != nil {
+				return fmt.Errorf("failed to unmarshal value for key [%s]: %v", string(k), err)
+			}
+			results[string(k)] = &valueWithTimestamp
 			count++
 			if count >= limit {
 				break
@@ -162,6 +168,46 @@ func (b *BoltStore) GetAllKeys(bucket string, limit int64) (map[string][]byte, e
 	}
 
 	return results, nil
+}
+
+func (b *BoltStore) SnapshotItems() <-chan *protobuf.KeyValuePair {
+	ch := make(chan *protobuf.KeyValuePair)
+
+	go func() {
+		defer close(ch)
+
+		err := b.db.View(func(tx *bolt.Tx) error {
+			return tx.ForEach(func(bucketName []byte, bkt *bolt.Bucket) error {
+				if bkt == nil {
+					return nil
+				}
+
+				c := bkt.Cursor()
+				for k, v := c.First(); k != nil; k, v = c.Next() {
+					var valueWithTimestamp types.ValueWithTimestamp
+
+					// Unmarshal the value to extract the raw value (optional)
+					if err := json.Unmarshal(v, &valueWithTimestamp); err != nil {
+						return fmt.Errorf("failed to unmarshal value for key [%s/%s]: %v", bucketName, k, err)
+					}
+
+					// Send the key-value pair to the channel
+					ch <- &protobuf.KeyValuePair{
+						Bucket: string(bucketName),
+						Key:    string(k),
+						Value:  valueWithTimestamp.Value,
+					}
+				}
+				return nil
+			})
+		})
+
+		if err != nil {
+			log.Printf("error during snapshot iteration: %v", err)
+		}
+	}()
+
+	return ch
 }
 
 func (b *BoltStore) Close() error {
