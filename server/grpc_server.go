@@ -3,9 +3,9 @@ package server
 import (
 	"fmt"
 	"log"
+	"log/slog"
 	"net"
 
-	"github.com/Bl4ck-h00d/stashdb/core/store"
 	"github.com/Bl4ck-h00d/stashdb/protobuf"
 	"github.com/Bl4ck-h00d/stashdb/raft"
 	"google.golang.org/grpc"
@@ -23,12 +23,11 @@ func NewGRPCServer(grpcAddress, storageEngine, dataPath, certificateFile, common
 	server := grpc.NewServer()
 	listener, err := net.Listen("tcp", grpcAddress)
 
-	dataStore, err := store.NewStore(storageEngine, dataPath)
 	if err != nil {
 		panic(fmt.Sprintf("failed to open database: %v", err))
 	}
 
-	service := NewGRPCService(dataStore, certificateFile,commonName,raftServer)
+	service := NewGRPCService(certificateFile, commonName, raftServer)
 
 	protobuf.RegisterStashDBServiceServer(server, service)
 
@@ -41,6 +40,9 @@ func NewGRPCServer(grpcAddress, storageEngine, dataPath, certificateFile, common
 }
 
 func (s *GRPCServer) Start() error {
+	if err := s.service.Start(); err != nil {
+		slog.Error("failed to start gRPC service", slog.Any("error", err))
+	}
 
 	go func() {
 		_ = s.server.Serve(s.listener)

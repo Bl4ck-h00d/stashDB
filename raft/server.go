@@ -1,19 +1,22 @@
 package raft
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
 	"time"
 
+	"github.com/Bl4ck-h00d/stashdb/marshaler"
 	"github.com/Bl4ck-h00d/stashdb/protobuf"
 	"github.com/golang/protobuf/ptypes/any"
 	"github.com/hashicorp/raft"
 	raftboltdb "github.com/hashicorp/raft-boltdb"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 )
 
 type RaftServer struct {
@@ -32,7 +35,8 @@ type RaftServer struct {
 }
 
 func NewRaftServer(id, raftAddress, storageEngine, raftDir string, bootstrap bool) (*RaftServer, error) {
-	storeFSMPath := filepath.Join(raftDir, "stashdb")
+	file := fmt.Sprintf("%s-stash.db", id)
+	storeFSMPath := filepath.Join(raftDir, file)
 	fsm := NewRaftFSM(storageEngine, storeFSMPath)
 
 	return &RaftServer{
@@ -52,50 +56,73 @@ func NewRaftServer(id, raftAddress, storageEngine, raftDir string, bootstrap boo
 // Start opens the store. If bootstrapp is set true, and there are no existing peers,
 // then this node becomes the first node, and therefore leader, of the cluster.
 func (r *RaftServer) Start() error {
-
-	// Setup Raft configuration.
 	config := raft.DefaultConfig()
 	config.LocalID = raft.ServerID(r.Id)
+	config.SnapshotThreshold = 1024
+	config.LogOutput = ioutil.Discard
+	config.HeartbeatTimeout = 1000 * time.Millisecond
+	config.ElectionTimeout = 1000 * time.Millisecond
 
-	// Setup Raft communication.
 	addr, err := net.ResolveTCPAddr("tcp", r.raftAddress)
 	if err != nil {
+		slog.Error("failed to resolve TCP address", slog.String("raft_address", r.raftAddress), slog.Any("error", err))
 		return err
 	}
-	transport, err := raft.NewTCPTransport(r.raftAddress, addr, 3, 10*time.Second, os.Stderr)
+
+	transport, err := raft.NewTCPTransport(r.raftAddress, addr, 3, 10*time.Second, ioutil.Discard)
 	if err != nil {
+		slog.Error("failed to create TCP transport", slog.String("raft_address", r.raftAddress), slog.Any("error", err))
 		return err
 	}
 
-	// Create the snapshot store. This allows the Raft to truncate the log.
-	snapshots, err := raft.NewFileSnapshotStore(r.raftDir, 2, os.Stderr)
+	// Wipe storage if starting fresh
+	raftDir := filepath.Join(r.raftDir, "raft")
+	slog.Warn("Wiping persistent Raft storage", slog.String("path", raftDir))
+	if err := os.RemoveAll(raftDir); err != nil {
+		slog.Error("failed to wipe raft directory", slog.String("path", raftDir), slog.Any("error", err))
+		return err
+	}
+	if err := os.MkdirAll(raftDir, 0755); err != nil {
+		slog.Error("failed to recreate raft directory", slog.String("path", raftDir), slog.Any("error", err))
+		return err
+	}
+
+	// Create snapshot store
+	snapshotStore, err := raft.NewFileSnapshotStore(r.raftDir, 2, ioutil.Discard)
 	if err != nil {
-		slog.Error("error creating snapshot store", slog.Any("error", err))
+		slog.Error("failed to create file snapshot store", slog.String("path", r.raftDir), slog.Any("error", err))
 		return err
 	}
 
-	// Create the log store and stable store.
-	var logStore raft.LogStore
-	var stableStore raft.StableStore
+	// Create Raft storage directory
+	raftDir = filepath.Join(r.raftDir, "raft")
+	if err := os.MkdirAll(raftDir, 0755); err != nil {
+		slog.Error("failed to create raft directory", slog.String("path", raftDir), slog.Any("error", err))
+		return err
+	}
 
-	boltDB, err := raftboltdb.New(raftboltdb.Options{
-		Path: filepath.Join(r.raftDir, "raft.db"),
-	})
+	// Stable store using BoltDB
+	stableStore, err := raftboltdb.NewBoltStore(filepath.Join(raftDir, "stable.db"))
 	if err != nil {
-		slog.Error("failed to create log store and stable store", slog.Any("error", err))
+		slog.Error("failed to create stable store", slog.String("path", raftDir), slog.Any("error", err))
 		return err
 	}
-	logStore = boltDB
-	stableStore = boltDB
 
-	// Instantiate the Raft systems.
-	ra, err := raft.NewRaft(config, r.fsm, logStore, stableStore, snapshots, transport)
+	// Log store using a separate BoltDB instance
+	logStore, err := raftboltdb.NewBoltStore(filepath.Join(raftDir, "logs.db"))
 	if err != nil {
-		slog.Error("failed to instantiate raft system", slog.Any("error", err))
+		slog.Error("failed to create log store", slog.String("path", raftDir), slog.Any("error", err))
 		return err
 	}
-	r.Raft = ra
 
+	// Create Raft instance
+	r.Raft, err = raft.NewRaft(config, r.fsm, logStore, stableStore, snapshotStore, transport)
+	if err != nil {
+		slog.Error("failed to create raft", slog.Any("config", config), slog.Any("error", err))
+		return err
+	}
+
+	// Bootstrap if needed
 	if r.bootstrap {
 		configuration := raft.Configuration{
 			Servers: []raft.Server{
@@ -105,7 +132,7 @@ func (r *RaftServer) Start() error {
 				},
 			},
 		}
-		ra.BootstrapCluster(configuration)
+		r.Raft.BootstrapCluster(configuration)
 	}
 
 	go func() {
@@ -114,7 +141,6 @@ func (r *RaftServer) Start() error {
 
 	slog.Info("Raft server started", slog.String("raft_address", r.raftAddress))
 	return nil
-
 }
 
 func (r *RaftServer) Stop() error {
@@ -139,7 +165,7 @@ func (r *RaftServer) Stop() error {
 }
 
 func (r *RaftServer) startWatchCluster(checkInterval time.Duration) {
-	slog.Info("Initiating Raft watch cluster")
+	slog.Info("initiating Raft watch cluster")
 
 	defer func() {
 		close(r.watchClusterDoneCh)
@@ -156,7 +182,7 @@ func (r *RaftServer) startWatchCluster(checkInterval time.Duration) {
 	for {
 		select {
 		case <-r.watchClusterStopCh:
-			slog.Info("stoping watch cluster")
+			slog.Info("stoping Raft watch cluster")
 			return
 		case <-r.Raft.LeaderCh():
 			slog.Info("elected as leader", slog.String("leaderAddr", string(r.Raft.Leader())))
@@ -169,7 +195,7 @@ func (r *RaftServer) startWatchCluster(checkInterval time.Duration) {
 func (r *RaftServer) stopWatchCluster() {
 	close(r.watchClusterStopCh)
 	<-r.watchClusterDoneCh
-	slog.Info("cluster watcher has been stopped")
+	slog.Info("stopping Raft watch cluster")
 }
 
 // DetectLeader periodically checks for a leader in the Raft cluster until a timeout occurs.
@@ -219,7 +245,7 @@ func (s *RaftServer) GetLeaderID(timeout time.Duration) (raft.ServerID, error) {
 
 	for _, srv := range cf.Configuration().Servers {
 		if srv.Address == leaderAddr {
-			slog.Info("leader detected", slog.String("id", string(srv.ID)))
+			slog.Debug("leader detected", slog.String("id", string(srv.ID)))
 			return srv.ID, nil
 		}
 	}
@@ -272,8 +298,9 @@ func (r *RaftServer) Join(id string, node *protobuf.Node) error {
 	}
 
 	if nodeExists {
-		slog.Debug("node already exists in the cluster", slog.String("id", id), slog.String("raft-address", node.RaftAddress))
+		slog.Info("peer already exists in the cluster", slog.String("id", id), slog.String("raft-address", node.RaftAddress))
 	} else {
+		slog.Info("adding peer to the cluster", slog.String("id", id))
 		future := r.Raft.AddVoter(raft.ServerID(id), raft.ServerAddress(node.RaftAddress), 0, 0)
 
 		if future.Error() != nil {
@@ -281,7 +308,7 @@ func (r *RaftServer) Join(id string, node *protobuf.Node) error {
 			return future.Error()
 		}
 
-		slog.Info("node has been added successfully", slog.String("id", id), slog.String("raft-address", node.RaftAddress))
+		slog.Info("peer has been added successfully", slog.String("id", id), slog.String("raft-address", node.RaftAddress))
 	}
 
 	err = r.publishJoinEvent(id, node.Metadata)
@@ -296,25 +323,33 @@ func (r *RaftServer) Join(id string, node *protobuf.Node) error {
 }
 
 func (r *RaftServer) publishJoinEvent(id string, metadata *protobuf.Metadata) error {
+
 	data := &protobuf.SetMetadataRequest{
 		Id:       id,
 		Metadata: metadata,
 	}
 
-	// convert request to any type
 	dataAny := &any.Any{}
-	marshalledVal, _ := json.Marshal(data)
-	json.Unmarshal(marshalledVal, dataAny)
+	err := marshaler.UnmarshalAny(data, dataAny)
+	if err != nil {
+		slog.Error("failed to unmarshal request to the command data", slog.String("id", id), slog.Any("metadata", metadata), slog.Any("error", err))
+		return err
+	}
 
-	event := &protobuf.Event{
+	c := &protobuf.Event{
 		Type:    protobuf.EventType_Join,
 		Message: dataAny,
 	}
 
-	marshalledEvent, _ := json.Marshal(event)
+	msg, err := proto.Marshal(c)
+	if err != nil {
+		slog.Error("failed to marshal the command into the bytes as message", slog.String("id", id), slog.Any("metadata", metadata), slog.Any("error", err))
+		return err
+	}
 
-	f := r.Raft.Apply(marshalledEvent, 10*time.Second)
-	if err := f.Error(); err != nil {
+	// Apply the message
+	f := r.Raft.Apply(msg, 10*time.Second)
+	if err = f.Error(); err != nil {
 		slog.Error("failed to apply message", slog.String("id", id), slog.Any("metadata", metadata), slog.Any("error", err))
 		return err
 	}
@@ -323,5 +358,199 @@ func (r *RaftServer) publishJoinEvent(id string, metadata *protobuf.Metadata) er
 }
 
 func (r *RaftServer) Exists(id string) (bool, error) {
-	return false, nil
+	exists := false
+
+	cf := r.Raft.GetConfiguration()
+	if cf.Error() != nil {
+		slog.Error("failed to get Raft configuration", slog.String("id", id))
+		return exists, cf.Error()
+	}
+
+	for _, srv := range cf.Configuration().Servers {
+		if srv.ID == raft.ServerID(id) {
+			slog.Info("node with this ID already exists in the cluster", slog.String("id", id))
+			exists = true
+			break
+		}
+	}
+
+	return exists, nil
+
+}
+
+func (r *RaftServer) Leave(id string) error {
+	nodeExists, err := r.Exists(id)
+	if err != nil {
+		return err
+	}
+
+	if nodeExists {
+		if future := r.Raft.RemoveServer(raft.ServerID(id), 0, 0); future.Error() != nil {
+			slog.Error("failed to remove peer", slog.String("id", id))
+			return future.Error()
+		}
+		slog.Info("peer left the cluster", slog.String("id", id))
+	} else {
+		slog.Debug("peer does not exist", slog.String("id", id))
+	}
+
+	err = r.publishLeaveEvent(id)
+	if err != nil {
+		slog.Error("failed to leave the cluster", slog.String("id", id), slog.Any("error", err))
+		return err
+	}
+	return nil
+}
+
+func (r *RaftServer) publishLeaveEvent(id string) error {
+	data := &protobuf.DeleteMetadataRequest{
+		Id: id,
+	}
+
+	dataAny := &any.Any{}
+	err := marshaler.UnmarshalAny(data, dataAny)
+	if err != nil {
+		slog.Error("failed to unmarshal request to the command data", slog.String("id", id), slog.Any("error", err))
+		return err
+	}
+
+	c := &protobuf.Event{
+		Type:    protobuf.EventType_Leave,
+		Message: dataAny,
+	}
+
+	msg, err := proto.Marshal(c)
+	if err != nil {
+		slog.Error("failed to marshal the command into the bytes as the message", slog.String("id", id), slog.Any("error", err))
+		return err
+	}
+	if f := r.Raft.Apply(msg, 10*time.Second); f.Error() != nil {
+		slog.Error("failed to apply message", slog.String("id", id), slog.Any("error", f.Error()))
+		return f.Error()
+	}
+
+	return nil
+}
+
+// CRUD utilities
+
+func (r *RaftServer) CreateBucket(req *protobuf.CreateBucketRequest) error {
+	c := &protobuf.Event{
+		Type: protobuf.EventType_Create,
+	}
+
+	reqAny, err := anypb.New(req)
+	if err != nil {
+		slog.Error("failed to wrap request into anypb.Any", slog.String("bucket", req.Name))
+		return err
+	}
+
+	c.Message = reqAny
+
+	// Marshal the Event into bytes
+	msg, err := proto.Marshal(c)
+	if err != nil {
+		slog.Error("failed to marshal the command into bytes as the message", slog.Any("request", req), slog.Any("error", err))
+		return err
+	}
+
+	if f := r.Raft.Apply(msg, 10*time.Second); f.Error() != nil {
+		slog.Error("failed to create bucket", slog.String("bucket", req.Name), slog.Any("error", f.Error()))
+		return f.Error()
+	}
+	return nil
+}
+
+func (r *RaftServer) Get(req *protobuf.GetRequest) (*protobuf.GetResponse, error) {
+	resp, err := r.fsm.Get(req.Bucket, req.Key)
+	if resp.Value == nil {
+		slog.Error("key not found", slog.String("bucket", req.Bucket), slog.String("key", req.Key))
+		return nil, err
+	}
+
+	res := &protobuf.GetResponse{
+		Value: []byte(resp.Value),
+		Timestamp: resp.Timestamp,
+	}
+
+	return res, nil
+}
+
+func (r *RaftServer) Set(req *protobuf.SetRequest) error {
+	slog.Info("SET request - raft")
+
+	reqAny := &any.Any{}
+	if err := marshaler.UnmarshalAny(req, reqAny); err != nil {
+		slog.Error("failed to unmarshal request to the command data", slog.String("key", req.Key), slog.Any("error", err))
+		return err
+	}
+
+	c := &protobuf.Event{
+		Type:    protobuf.EventType_Set,
+		Message: reqAny,
+	}
+
+	msg, err := proto.Marshal(c)
+	if err != nil {
+		slog.Error("failed to marshal the command into the bytes as the message", slog.String("key", req.Key), slog.Any("error", err))
+		return err
+	}
+	if f := r.Raft.Apply(msg, 10*time.Second); f.Error() != nil {
+		slog.Error("failed to SET value", slog.String("bucket", req.Bucket), slog.String("key", req.Key), slog.Any("error", f.Error()))
+		return f.Error()
+	}
+	return nil
+}
+
+func (r *RaftServer) Delete(req *protobuf.DeleteRequest) error {
+	reqAny := &any.Any{}
+	if err := marshaler.UnmarshalAny(req, reqAny); err != nil {
+		slog.Error("failed to unmarshal request to the command data", slog.String("key", req.Key), slog.Any("error", err))
+		return err
+	}
+
+	c := &protobuf.Event{
+		Type:    protobuf.EventType_Delete,
+		Message: reqAny,
+	}
+
+	msg, err := proto.Marshal(c)
+	if err != nil {
+		slog.Error("failed to marshal the command into the bytes as the message", slog.String("key", req.Key), slog.Any("error", err))
+		return err
+	}
+
+	if f := r.Raft.Apply(msg, 10*time.Second); f.Error() != nil {
+		slog.Error("failed to DELETE value", slog.String("bucket", req.Bucket), slog.String("key", req.Key), slog.Any("error", f.Error()))
+		return f.Error()
+	}
+	return nil
+}
+
+func (r *RaftServer) GetAllBuckets() (*protobuf.GetAllBucketsResponse, error) {
+	buckets, err := r.fsm.GetAllBuckets()
+	if err != nil {
+		slog.Error("failed to get all buckets", slog.Any("error", err))
+		return nil, err
+	}
+
+	resp := &protobuf.GetAllBucketsResponse{
+		Buckets: buckets,
+	}
+
+	return resp, nil
+}
+
+func (r *RaftServer) GetAllKeys(req *protobuf.GetAllKeysRequest) (*protobuf.GetAllKeysResponse, error) {
+	keys, err := r.fsm.GetAllKeys(req.Bucket, req.Limit)
+	if err != nil {
+		slog.Error("failed to get all keys for bucket", slog.String("bucket", req.Bucket), slog.Any("error", err))
+		return nil, err
+	}
+
+	resp := &protobuf.GetAllKeysResponse{
+		Pairs: keys,
+	}
+
+	return resp, nil
 }

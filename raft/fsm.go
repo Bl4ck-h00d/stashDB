@@ -1,17 +1,21 @@
 package raft
 
 import (
-	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"io/ioutil"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/Bl4ck-h00d/stashdb/core/store"
+	"github.com/Bl4ck-h00d/stashdb/marshaler"
 	"github.com/Bl4ck-h00d/stashdb/protobuf"
 	"github.com/Bl4ck-h00d/stashdb/types"
 	"github.com/golang/protobuf/proto"
 	"github.com/hashicorp/raft"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 type RaftFSM struct {
@@ -37,20 +41,46 @@ func (f *RaftFSM) Apply(l *raft.Log) interface{} {
 	var event protobuf.Event
 	err := proto.Unmarshal(l.Data, &event)
 	if err != nil {
-		slog.Error("failed to unmarshal raft event", slog.Any("error", err))
-		return err
+		// If binary unmarshaling fails, try JSON unmarshaling
+		fmt.Printf("Binary Unmarshal failed, trying JSON: %v\n", err)
+		err = protojson.Unmarshal(l.Data, &event)
+		if err != nil {
+			fmt.Printf("JSON Unmarshal also failed: %v\n", err)
+			return nil
+		}
 	}
 
 	switch event.Type {
 	case protobuf.EventType_Join:
-		var joinReq protobuf.JoinRequest
-		err := json.Unmarshal(event.Message.Value, &joinReq)
+		data, err := marshaler.MarshalAny(event.Message)
+
 		if err != nil {
-			slog.Error("failed to unmarshal join request", slog.Any("error", err))
+			slog.Error("failed to marshal join request", slog.Any("error", err))
+			return err
+		}
+		if data == nil {
+			err = errors.New("nil")
+			slog.Error("request is nil", slog.String("type", event.Type.String()))
 			return err
 		}
 
-		res := f.applySetMetadata(joinReq.Id, joinReq.Node.Metadata)
+		req := data.(*protobuf.SetMetadataRequest)
+
+		res := f.applySetMetadata(req.Id, req.Metadata)
+
+		if res == nil {
+			f.eventCh <- &event
+		}
+
+		return res
+	case protobuf.EventType_Leave:
+		data, err := marshaler.MarshalAny(event.Message)
+		if err != nil {
+			slog.Error("failed to unmarshal leave request", slog.Any("error", err))
+			return err
+		}
+		req := *data.(*protobuf.DeleteMetadataRequest)
+		res := f.applyDeleteMetadata(req.Id)
 
 		if res == nil {
 			f.eventCh <- &event
@@ -58,16 +88,52 @@ func (f *RaftFSM) Apply(l *raft.Log) interface{} {
 
 		return res
 
+	case protobuf.EventType_Create:
+		data, err := marshaler.MarshalAny(event.Message)
+		if err != nil {
+			slog.Error("failed to unmarshal create bucket request", slog.Any("error", err))
+			return err
+		}
+
+		req := *data.(*protobuf.CreateMetadataRequest)
+		res := f.applyCreateBucket(req.Name)
+		if res == nil {
+			f.eventCh <- &event
+		}
+
+		return res
+	case protobuf.EventType_Set:
+		data, err := marshaler.MarshalAny(event.Message)
+		if err != nil {
+			slog.Error("failed to unmarshal set request", slog.Any("error", err))
+			return err
+		}
+		req := *data.(*protobuf.SetRequest)
+		res := f.applySet(req.Bucket, req.Key, []byte(req.Value))
+		if res == nil {
+			f.eventCh <- &event
+		}
+
+		return res
+	case protobuf.EventType_Delete:
+		data, err := marshaler.MarshalAny(event.Message)
+		if err != nil {
+			slog.Error("failed to unmarshal delete request", slog.Any("error", err))
+			return err
+		}
+
+		req := *data.(*protobuf.DeleteRequest)
+		res := f.applyDelete(req.Bucket, req.Key)
+		if res == nil {
+			f.eventCh <- &event
+		}
+
+		return res
+	default:
+		err = errors.New("command type not support")
+		slog.Error("unsupported command", slog.String("type", event.Type.String()))
+		return err
 	}
-	return nil
-}
-
-func (f *RaftFSM) Snapshot() (raft.FSMSnapshot, error) {
-	return nil, nil
-}
-
-func (f *RaftFSM) Restore(rc io.ReadCloser) error {
-	// Restore state from a snapshot
 	return nil
 }
 
@@ -79,13 +145,17 @@ func (f *RaftFSM) applyCreateBucket(name string) error {
 	return nil
 }
 
-func (f *RaftFSM) Get(bucket, key string) ([]byte, error) {
-	val := f.store.Get(bucket, key)
-	if val == nil {
+func (f *RaftFSM) Get(bucket, key string) (*protobuf.GetResponse, error) {
+	resp, _ := f.store.Get(bucket, key)
+	protoRes := &protobuf.GetResponse{
+		Value:     resp.Value,
+		Timestamp: resp.Timestamp,
+	}
+	if resp.Value == nil {
 		slog.Error("key not found", slog.String("key", key), slog.String("bucket", bucket))
 		return nil, errors.New("key not found")
 	}
-	return val, nil
+	return protoRes, nil
 }
 
 func (f *RaftFSM) applySet(bucket, key string, value []byte) error {
@@ -113,13 +183,22 @@ func (f *RaftFSM) GetAllBuckets() ([]string, error) {
 	return val, nil
 }
 
-func (f *RaftFSM) GetAllKeys(bucket string, limit int64) (map[string][]byte, error) {
-	val, err := f.store.GetAllKeys(bucket, limit)
+func (f *RaftFSM) GetAllKeys(bucket string, limit int64) (map[string]*protobuf.GetResponse, error) {
+
+	protoResp := make(map[string]*protobuf.GetResponse, 0)
+	resp, err := f.store.GetAllKeys(bucket, limit)
+	for key, val := range resp {
+		value := &protobuf.GetResponse{
+			Value:     val.Value,
+			Timestamp: val.Timestamp,
+		}
+		protoResp[key] = value
+	}
 	if err != nil {
 		slog.Error("failed fetch keys", slog.String("bucket", bucket), slog.Any("error", err))
 		return nil, err
 	}
-	return val, nil
+	return protoResp, nil
 }
 
 func (f *RaftFSM) getMetadata(id string) *protobuf.Metadata {
@@ -173,14 +252,108 @@ func (f *RaftFSM) Close() error {
 // ----------------
 
 type FSMSnapshot struct {
-	store *types.Store
+	store types.Store
+}
+
+func (s *RaftFSM) Snapshot() (raft.FSMSnapshot, error) {
+	return &FSMSnapshot{store: s.store}, nil
+}
+
+func (s *RaftFSM) Restore(rc io.ReadCloser) error {
+	start := time.Now()
+	slog.Info("start to restore items")
+
+	defer func() {
+		err := rc.Close()
+		if err != nil {
+			slog.Error("failed to close reader", slog.Any("error", err))
+		}
+	}()
+
+	data, err := ioutil.ReadAll(rc)
+	if err != nil {
+		slog.Error("failed to read from snapshot", slog.Any("error", err))
+		return err
+	}
+
+	keyCount := uint64(0)
+	buff := proto.NewBuffer(data)
+	for {
+		kvp := &protobuf.KeyValuePair{}
+		err = buff.DecodeMessage(kvp)
+		if err == io.ErrUnexpectedEOF || err == io.EOF {
+			break // Finished reading all items
+		}
+		if err != nil {
+			slog.Error("failed to decode key-value pair", slog.Any("error", err))
+			return err
+		}
+
+		// Apply item to the store, including the bucket and key
+		if kvp.Bucket == "" {
+			slog.Error("bucket name is empty", slog.String("key", kvp.Key))
+			return errors.New("bucket name cannot be empty")
+		}
+		err = s.store.Set(kvp.Bucket, kvp.Key, kvp.Value)
+		if err != nil {
+			slog.Error("failed to set key-value pair in the store", slog.String("bucket", kvp.Bucket), slog.String("key", kvp.Key), slog.Any("error", err))
+			return err
+		}
+
+		slog.Debug("restored item", slog.String("bucket", kvp.Bucket), slog.String("key", kvp.Key))
+		keyCount++
+	}
+
+	slog.Info("finished restoring items", slog.Uint64("count", keyCount), slog.Float64("time", float64(time.Since(start))/float64(time.Second)))
+	return nil
 }
 
 func (s *FSMSnapshot) Persist(sink raft.SnapshotSink) error {
-	// Save state to a snapshot
+	start := time.Now()
+	slog.Info("start to persist items")
+
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("recovered from panic during persist", slog.Any("reason", r))
+			sink.Cancel()
+		} else {
+			err := sink.Close()
+			if err != nil {
+				slog.Error("failed to close sink", slog.Any("error", err))
+			}
+		}
+	}()
+
+	ch := s.store.SnapshotItems()
+	kvpCount := uint64(0)
+
+	for kvp := range ch {
+		if kvp == nil {
+			break // Channel closed
+		}
+
+		buff := proto.NewBuffer(nil)
+		err := buff.EncodeMessage(kvp)
+		if err != nil {
+			slog.Error("failed to encode key-value pair", slog.String("bucket", kvp.Bucket), slog.String("key", kvp.Key), slog.Any("error", err))
+			sink.Cancel()
+			return err
+		}
+
+		_, err = sink.Write(buff.Bytes())
+		if err != nil {
+			slog.Error("failed to write key-value pair to snapshot sink", slog.String("bucket", kvp.Bucket), slog.String("key", kvp.Key), slog.Any("error", err))
+			sink.Cancel()
+			return err
+		}
+
+		kvpCount++
+	}
+
+	slog.Info("finished persisting items", slog.Uint64("count", kvpCount), slog.Float64("time", float64(time.Since(start))/float64(time.Second)))
 	return nil
 }
 
 func (s *FSMSnapshot) Release() {
-	// Release resources
+	slog.Info("release")
 }
