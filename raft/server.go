@@ -461,7 +461,7 @@ func (r *RaftServer) CreateBucket(req *protobuf.CreateBucketRequest) error {
 
 func (r *RaftServer) Get(req *protobuf.GetRequest) (*protobuf.GetResponse, error) {
 	resp, err := r.fsm.Get(req.Bucket, req.Key)
-	if resp.Value == nil {
+	if resp == nil || resp.Value == nil {
 		slog.Error("key not found", slog.String("bucket", req.Bucket), slog.String("key", req.Key))
 		return nil, err
 	}

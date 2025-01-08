@@ -146,19 +146,22 @@ func (f *RaftFSM) applyCreateBucket(name string) error {
 }
 
 func (f *RaftFSM) Get(bucket, key string) (*protobuf.GetResponse, error) {
+	slog.Debug("GET Request", slog.String("bucket", bucket), slog.String("key", key))
 	resp, _ := f.store.Get(bucket, key)
+	
+	if resp == nil || resp.Value == nil {
+		slog.Error("key not found", slog.String("key", key), slog.String("bucket", bucket))
+		return nil, errors.New("key not found")
+	}
 	protoRes := &protobuf.GetResponse{
 		Value:     resp.Value,
 		Timestamp: resp.Timestamp,
-	}
-	if resp.Value == nil {
-		slog.Error("key not found", slog.String("key", key), slog.String("bucket", bucket))
-		return nil, errors.New("key not found")
 	}
 	return protoRes, nil
 }
 
 func (f *RaftFSM) applySet(bucket, key string, value []byte) error {
+	slog.Debug("SET Request", slog.String("bucket", bucket), slog.String("key", key), slog.String("value", string(value)))
 	err := f.store.Set(bucket, key, value)
 	if err != nil {
 		slog.Error("failed to set key", slog.String("key", key), slog.String("bucket", bucket), slog.Any("error", err))

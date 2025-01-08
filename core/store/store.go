@@ -11,6 +11,8 @@ func NewStore(dbType, dataDir string) (types.Store, error) {
 	switch dbType {
 	case "bolt":
 		return NewBoltStore(dataDir)
+	case "levels":
+		return NewLevelStore(dataDir)
 
 	default:
 		return nil, fmt.Errorf("unsupported database type: %v", dbType)

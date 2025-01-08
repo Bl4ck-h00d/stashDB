@@ -78,13 +78,15 @@ func (b *BoltStore) Get(bucket, key string) (*types.ValueWithTimestamp, error) {
 		// Access the bucket
 		bkt := tx.Bucket([]byte(bucket))
 		if bkt == nil {
-			return fmt.Errorf("bucket [%s] not found", bucket)
+			// return fmt.Errorf("bucket [%s] not found", bucket)
+			return nil
 		}
 
 		// Get the raw value
 		rawValue := bkt.Get([]byte(key))
 		if rawValue == nil {
-			return fmt.Errorf("key [%s/%s] not found", bucket, key)
+			// return fmt.Errorf("key [%s/%s] not found", bucket, key)
+			return nil
 		}
 
 		// Unmarshal the raw value into the struct
