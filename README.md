@@ -121,6 +121,14 @@ $ stash join node4 127.0.0.1:9004 --grpc-address=<target-port>
 * It is recommended to have **at least 3** nodes or follow a **2n+1** configuration for optimal fault tolerance and consensus.
 
 
+### Default Config:
+
+id: "node1"
+grpc_port: ":9000"
+http_port: ":8080"
+data_path: "data/stash.db"
+storageEngine: "bolt" 
+
 ### Benchmarks
 
 #### Total concurrent users: 1000
