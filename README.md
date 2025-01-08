@@ -123,11 +123,11 @@ $ stash join node4 127.0.0.1:9004 --grpc-address=<target-port>
 
 ### Default Config:
 
-id: "node1"
-grpc_port: ":9000"
-http_port: ":8080"
-data_path: "data/stash.db"
-storageEngine: "bolt" 
+* id: "node1"
+* grpc_port: ":9000"
+* http_port: ":8080"
+* data_dir: "data/stash.db"
+* storageEngine: "bolt" 
 
 ### Benchmarks
 
