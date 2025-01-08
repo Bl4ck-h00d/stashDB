@@ -10,3 +10,10 @@ StashDB also leverages the **Raft consensus** algorithm for fault tolerance and 
 * Database Replication: Built-in replication to maintain high availability across nodes.
 * Cluster Setup: Easily deploy and configure distributed clusters.
 * Secure Communication: Supports secure communication between nodes using TLS.
+
+
+### Benchmarks
+
+#### Total concurrent users: 1000
+
+![alt text](assets/benchmarks.png)
