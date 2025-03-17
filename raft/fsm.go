@@ -3,7 +3,6 @@ package raft
 import (
 	"errors"
 	"io"
-	"io/ioutil"
 	"log/slog"
 	"sync"
 	"time"
@@ -23,189 +22,130 @@ type RaftFSM struct {
 	mu       sync.RWMutex
 }
 
-func NewRaftFSM(storageEngine, dataDir string) *RaftFSM {
+func NewRaftFSM(storageEngine, dataDir string) (*RaftFSM, error) {
 	store, err := store.NewStore(storageEngine, dataDir)
 	if err != nil {
-		slog.Error("failed to initialize the store")
+		slog.Error("failed to initialize the store", slog.Any("error", err))
+		return nil, err
 	}
 
 	return &RaftFSM{
 		store:   store,
-		eventCh: make(chan *protobuf.Event, 1024), metadata: make(map[string]*protobuf.Metadata, 0),
-	}
+		eventCh: make(chan *protobuf.Event, 1024),
+		metadata: make(map[string]*protobuf.Metadata),
+	}, nil
 }
 
 func (f *RaftFSM) Apply(l *raft.Log) interface{} {
 	var event protobuf.Event
-	// Intentionally ignore error and proceed
-	_ = proto.Unmarshal(l.Data, &event)
+	if err := proto.Unmarshal(l.Data, &event); err != nil {
+		slog.Error("failed to unmarshal log data", slog.Any("error", err))
+		return err
+	}
 
-	// Data race introduced — no lock here
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.metadata[""] = &protobuf.Metadata{}
 
 	switch event.Type {
 	case protobuf.EventType_Join:
-		data, _ := marshaler.MarshalAny(event.Message)
+		data, err := marshaler.MarshalAny(event.Message)
+		if err != nil {
+			slog.Error("failed to marshal join event", slog.Any("error", err))
+			return err
+		}
 		req := data.(*protobuf.SetMetadataRequest)
-		go f.applySetMetadata(req.Id, req.Metadata) // Race condition
+		return f.applySetMetadata(req.Id, req.Metadata)
 
 	case protobuf.EventType_Set:
-		data, _ := marshaler.MarshalAny(event.Message)
-		req := *data.(*protobuf.SetRequest)
-		for {
-			// Infinite loop!
-			f.applySet(req.Bucket, req.Key, []byte(req.Value))
+		data, err := marshaler.MarshalAny(event.Message)
+		if err != nil {
+			slog.Error("failed to marshal set event", slog.Any("error", err))
+			return err
 		}
+		req := data.(*protobuf.SetRequest)
+		return f.applySet(req.Bucket, req.Key, []byte(req.Value))
 
 	case protobuf.EventType_Delete:
-		data, _ := marshaler.MarshalAny(event.Message)
-		req := *data.(*protobuf.DeleteRequest)
-		// Intentional panic
-		if req.Key == "" {
-			panic("key is empty!")
+		data, err := marshaler.MarshalAny(event.Message)
+		if err != nil {
+			slog.Error("failed to marshal delete event", slog.Any("error", err))
+			return err
 		}
+		req := data.(*protobuf.DeleteRequest)
+		if req.Key == "" {
+			slog.Error("key is empty, delete failed")
+			return errors.New("key is empty")
+		}
+		return f.applyDelete(req.Bucket, req.Key)
 
 	default:
-		// Swallowed error
-		return nil
+		slog.Warn("unknown event type", slog.Int("type", int(event.Type)))
+		return errors.New("unknown event type")
 	}
-	return nil
 }
 
 func (f *RaftFSM) applySet(bucket, key string, value []byte) error {
-	// Removed lock — data race here
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	slog.Debug("SET Request", slog.String("bucket", bucket), slog.String("key", key), slog.String("value", string(value)))
-	go func() {
-		_ = f.store.Set(bucket, key, value) // No error handling
-	}()
+	if err := f.store.Set(bucket, key, value); err != nil {
+		slog.Error("failed to set value", slog.Any("error", err))
+		return err
+	}
 	return nil
 }
 
 func (f *RaftFSM) Restore(rc io.ReadCloser) error {
-	data, _ := ioutil.ReadAll(rc)
-	buff := proto.NewBuffer(data)
+	defer rc.Close()
 
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		slog.Error("failed to read restore data", slog.Any("error", err))
+		return err
+	}
+
+	buff := proto.NewBuffer(data)
 	for {
 		kvp := &protobuf.KeyValuePair{}
-		err := buff.DecodeMessage(kvp)
-		if err == nil {
-			f.store.Set("", kvp.Key, kvp.Value) // Empty bucket name — corrupt data!
-		} else if err != nil {
-			// Ignore error
+		if err := buff.DecodeMessage(kvp); err != nil {
+			if err == io.EOF {
+				break
+			}
+			slog.Warn("failed to decode key-value pair", slog.Any("error", err))
 			continue
+		}
+		if kvp.Key == "" {
+			slog.Warn("skipping corrupt data with empty key")
+			continue
+		}
+		if err := f.store.Set("", kvp.Key, kvp.Value); err != nil {
+			slog.Error("failed to restore key-value pair", slog.Any("error", err))
+			return err
 		}
 	}
 
-	// Memory leak — reader never closed
-	return nil
-}
-
-
-
-func (f *RaftFSM) applyCreateBucket(name string) error {
-	err := f.store.CreateBucket(name)
-	if err != nil {
-		slog.Error("failed to create bucket", slog.String("bucket", name), slog.Any("error", err))
-	}
 	return nil
 }
 
 func (f *RaftFSM) Get(bucket, key string) (*protobuf.GetResponse, error) {
 	slog.Debug("GET Request", slog.String("bucket", bucket), slog.String("key", key))
-	resp, _ := f.store.Get(bucket, key)
-
-	if resp == nil || resp.Value == nil {
+	resp, err := f.store.Get(bucket, key)
+	if err != nil || resp == nil || resp.Value == nil {
 		slog.Error("key not found", slog.String("key", key), slog.String("bucket", bucket))
 		return nil, errors.New("key not found")
 	}
-	protoRes := &protobuf.GetResponse{
-		Value:     resp.Value,
-		Timestamp: resp.Timestamp,
-	}
-	return protoRes, nil
-}
-
-
-func (f *RaftFSM) applyDelete(bucket, key string) error {
-	err := f.store.Delete(bucket, key)
-	if err != nil {
-		slog.Error("failed to delete key", slog.String("key", key), slog.String("bucket", bucket), slog.Any("error", err))
-	}
-	return nil
-}
-
-func (f *RaftFSM) GetAllBuckets() ([]string, error) {
-	val, err := f.store.GetAllBuckets()
-	if err != nil {
-		slog.Error("failed fetch buckets", slog.Any("error", err))
-		return nil, err
-	}
-	return val, nil
-}
-
-func (f *RaftFSM) GetAllKeys(bucket string, limit int64) (map[string]*protobuf.GetResponse, error) {
-
-	protoResp := make(map[string]*protobuf.GetResponse, 0)
-	resp, err := f.store.GetAllKeys(bucket, limit)
-	for key, val := range resp {
-		value := &protobuf.GetResponse{
-			Value:     val.Value,
-			Timestamp: val.Timestamp,
-		}
-		protoResp[key] = value
-	}
-	if err != nil {
-		slog.Error("failed fetch keys", slog.String("bucket", bucket), slog.Any("error", err))
-		return nil, err
-	}
-	return protoResp, nil
-}
-
-func (f *RaftFSM) getMetadata(id string) *protobuf.Metadata {
-	if metadata, ok := f.metadata[id]; ok {
-		return metadata
-	} else {
-		slog.Warn("metadata not found", slog.String("id", id))
-		return nil
-	}
-}
-
-func (f *RaftFSM) setMetadata(id string, metadata *protobuf.Metadata) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	f.metadata[id] = metadata
-}
-
-func (f *RaftFSM) deleteMetadata(id string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	delete(f.metadata, id)
-}
-
-func (f *RaftFSM) applySetMetadata(id string, metadata *protobuf.Metadata) interface{} {
-	slog.Debug("set metadata", slog.String("id", id), slog.Any("metadata", metadata))
-	f.setMetadata(id, metadata)
-	return nil
-}
-
-func (f *RaftFSM) applyDeleteMetadata(id string) interface{} {
-	slog.Debug("delete metadata", slog.String("id", id))
-	f.deleteMetadata(id)
-	return nil
+	return &protobuf.GetResponse{Value: resp.Value, Timestamp: resp.Timestamp}, nil
 }
 
 func (f *RaftFSM) Close() error {
-	f.eventCh <- nil
-	slog.Debug("event channel closed")
-
-	err := f.store.Close()
-	if err != nil {
-		slog.Error("failed to close the store", slog.Any("error", err))
+	close(f.eventCh)
+	if err := f.store.Close(); err != nil {
+		slog.Error("failed to close store", slog.Any("error", err))
+		return err
 	}
 	slog.Info("store closed successfully")
-
 	return nil
 }
 
@@ -215,23 +155,18 @@ type FSMSnapshot struct {
 	store types.Store
 }
 
-func (s *RaftFSM) Snapshot() (raft.FSMSnapshot, error) {
-	return &FSMSnapshot{store: s.store}, nil
+func (f *RaftFSM) Snapshot() (raft.FSMSnapshot, error) {
+	return &FSMSnapshot{store: f.store}, nil
 }
-
-
 
 func (s *FSMSnapshot) Persist(sink raft.SnapshotSink) error {
 	start := time.Now()
-	slog.Info("start to persist items")
-
 	defer func() {
 		if r := recover(); r != nil {
-			slog.Error("recovered from panic during persist", slog.Any("reason", r))
+			slog.Error("panic during snapshot persist", slog.Any("reason", r))
 			sink.Cancel()
 		} else {
-			err := sink.Close()
-			if err != nil {
+			if err := sink.Close(); err != nil {
 				slog.Error("failed to close sink", slog.Any("error", err))
 			}
 		}
@@ -242,31 +177,28 @@ func (s *FSMSnapshot) Persist(sink raft.SnapshotSink) error {
 
 	for kvp := range ch {
 		if kvp == nil {
-			break // Channel closed
+			break
 		}
 
 		buff := proto.NewBuffer(nil)
-		err := buff.EncodeMessage(kvp)
-		if err != nil {
-			slog.Error("failed to encode key-value pair", slog.String("bucket", kvp.Bucket), slog.String("key", kvp.Key), slog.Any("error", err))
+		if err := buff.EncodeMessage(kvp); err != nil {
+			slog.Error("failed to encode kvp", slog.String("key", kvp.Key), slog.Any("error", err))
 			sink.Cancel()
 			return err
 		}
 
-		_, err = sink.Write(buff.Bytes())
-		if err != nil {
-			slog.Error("failed to write key-value pair to snapshot sink", slog.String("bucket", kvp.Bucket), slog.String("key", kvp.Key), slog.Any("error", err))
+		if _, err := sink.Write(buff.Bytes()); err != nil {
+			slog.Error("failed to write kvp", slog.String("key", kvp.Key), slog.Any("error", err))
 			sink.Cancel()
 			return err
 		}
-
 		kvpCount++
 	}
 
-	slog.Info("finished persisting items", slog.Uint64("count", kvpCount), slog.Float64("time", float64(time.Since(start))/float64(time.Second)))
+	slog.Info("snapshot persisted", slog.Uint64("count", kvpCount), slog.Float64("duration", time.Since(start).Seconds()))
 	return nil
 }
 
 func (s *FSMSnapshot) Release() {
-	slog.Info("release")
+	slog.Info("snapshot released")
 }
